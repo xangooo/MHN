@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GRE Vocabulary Builder - Auto Import</title>
+    
+    <!-- SheetJS for Excel/CSV -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- Mammoth.js for Word (.docx) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <!-- PDF.js for PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    
+    <!-- Set PDF.js worker -->
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+    </script>
+
+    <style>
+        :root {
+            --bg-color: #f4f4f9;
+            --text-color: #333;
+            --box-border: 1px solid #000;
+            --box-bg: #fff;
+            --known-bg: #d4edda;
+            --known-text: #155724;
+            --unknown-bg: #f8d7da;
+            --unknown-text: #721c24;
+            --sidebar-width: 320px;
+            --header-height: 100px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', sans-serif; background-color: var(--bg-color); color: var(--text-color); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+        /* Header */
+        header { height: var(--header-height); background: #fff; border-bottom: 1px solid #ccc; display: flex; flex-direction: column; padding: 0 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 10; }
+        
+        .header-top { display: flex; justify-content: space-between; align-items: center; height: 50%; padding-top: 10px; }
+        .header-bottom { display: flex; justify-content: space-between; align-items: center; height: 50%; font-size: 0.85rem; border-top: 1px solid #eee; }
+
+        h1 { font-size: 1.2rem; color: #000; }
+        .controls { display: flex; gap: 10px; align-items: center; }
+
+        button { padding: 6px 12px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; transition: background 0.2s; }
+        button:hover { background-color: #0056b3; }
+        button.secondary { background-color: #6c757d; }
+        button.secondary:hover { background-color: #5a6268; }
+        button.sort-btn { background-color: #ffc107; color: #000; font-weight: bold; }
+        button.sort-btn:hover { background-color: #e0a800; }
+
+        #file-upload { display: none; }
+        .upload-label { background-color: #28a745; color: white; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.9rem; display: inline-block; transition: background 0.2s; }
+        .upload-label:hover { background-color: #218838; }
+
+        .stats-container { display: flex; gap: 15px; font-weight: bold; background: #f0f0f0; padding: 4px 12px; border-radius: 20px; }
+        .stat-item span { font-weight: normal; margin-left: 4px; }
+
+        /* Layout */
+        .layout-container { display: flex; flex: 1; height: calc(100vh - var(--header-height)); }
+
+        /* Grid */
+        .word-area { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 15px; }
+
+        .word-box { border: var(--box-border); border-radius: 4px; padding: 15px; width: 140px; height: 80px; display: flex; align-items: center; justify-content: center; text-align: center; font-weight: bold; font-size: 1rem; cursor: pointer; transition: all 0.2s; background-color: var(--box-bg); color: #000; user-select: none; }
+        .word-box.known { background-color: var(--known-bg); border-color: #c3e6cb; color: var(--known-text); }
+        .word-box.unknown { background-color: var(--unknown-bg); border-color: #f5c6cb; color: var(--unknown-text); }
+        .word-box.active-focus { box-shadow: 0 0 0 2px #007bff; transform: scale(1.05); z-index: 5; }
+
+        /* Sidebar */
+        .sidebar { width: var(--sidebar-width); background: #fff; border-left: 1px solid #ddd; display: flex; flex-direction: column; padding: 20px; box-shadow: -2px 0 5px rgba(0,0,0,0.02); }
+        .sidebar h2 { font-size: 1rem; margin-bottom: 15px; color: #555; text-transform: uppercase; letter-spacing: 1px; border-bottom: 2px solid #007bff; padding-bottom: 5px; }
+        #meaning-display { font-size: 1.05rem; line-height: 1.6; color: #222; }
+        .empty-msg { color: #999; font-style: italic; }
+        .keyboard-hints { margin-top: auto; font-size: 0.8rem; color: #666; background: #f8f9fa; padding: 10px; border-radius: 4px; }
+        .key { display: inline-block; background: #eee; border: 1px solid #ccc; border-radius: 3px; padding: 0 4px; font-family: monospace; font-weight: bold; box-shadow: 0 1px 0 #999; }
+
+        /* Toast */
+        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background-color: #333; color: #fff; padding: 10px 20px; border-radius: 4px; opacity: 0; transition: opacity 0.5s; pointer-events: none; z-index: 1000; }
+        .toast.show { opacity: 1; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-top">
+            <h1>GRE Vocabulary System</h1>
+            <div class="controls">
+                <input type="file" id="file-upload" accept=".csv, .xlsx, .xls, .doc, .docx, .pdf">
+                <label for="file-upload" class="upload-label">Upload List (PDF/Excel/Word)</label>
+                <button class="sort-btn" onclick="sortUnknownFirst()">All unknown together</button>
+                <button class="secondary" onclick="resetToDefault()">Reset Default</button>
+                <button onclick="reshuffleWords()">Reshuffle</button>
+            </div>
+        </div>
+        <div class="header-bottom">
+            <div class="stats-container">
+                <div class="stat-item">Total: <span id="count-total">0</span></div>
+                <div class="stat-item">Known: <span id="count-known">0</span></div>
+                <div class="stat-item">Unknown: <span id="count-unknown">0</span></div>
+                <div class="stat-item">Remaining: <span id="count-remaining">0</span></div>
+            </div>
+            <div style="font-size: 0.8rem; color: #666;">
+                Supports 2-Column PDFs (Word | Meaning)
+            </div>
+        </div>
+    </header>
+
+    <div class="layout-container">
+        <main class="word-area" id="word-grid"></main>
+        <aside class="sidebar">
+            <h2>Definition</h2>
+            <div id="meaning-display"><span class="empty-msg">Select a word and press Spacebar.</span></div>
+            <div class="keyboard-hints">
+                <p><span class="key">Y</span> = Know (Green)</p>
+                <p><span class="key">N</span> = Don't Know (Red)</p>
+                <p><span class="key">Space</span> = Details</p>
+            </div>
+        </aside>
+    </div>
+
+    <div id="toast" class="toast">Message</div>
+
+    <script>
+        const defaultWordData = [
+            // ===== Group 1 =====
+            { word: "Abound", meaning: "To be present in large quantities.", synonyms: "Plentiful, Overflow" },
+            { word: "Amorphous", meaning: "Lacking a clear structure or form.", synonyms: "Shapeless, Vague" },
+            { word: "Austere", meaning: "Severely simple or strict in manner or conditions.", synonyms: "Harsh, Stern" },
+            { word: "Belie", meaning: "To give a false impression of; to mask.", synonyms: "Misrepresent, Contradict" },
+            { word: "Capricious", meaning: "Given to sudden and unpredictable changes in mood or behavior.", synonyms: "Fickle, Impulsive" },
+            { word: "Cerebral", meaning: "Related to intellect rather than emotion.", synonyms: "Intellectual, Thoughtful" },
+            { word: "Congenial", meaning: "Pleasant or agreeable because of shared interests or temperament.", synonyms: "Agreeable, Compatible" },
+            { word: "Conspicuous", meaning: "Easily noticed or obvious.", synonyms: "Noticeable, Prominent" },
+            { word: "Cursory", meaning: "Hasty and lacking attention to detail.", synonyms: "Superficial, Brief" },
+            { word: "Daunting", meaning: "Seeming difficult or intimidating.", synonyms: "Intimidating, Formidable" },
+            { word: "Deify", meaning: "To treat someone as a god or revere greatly.", synonyms: "Worship, Idolize" },
+            { word: "Didactic", meaning: "Intended to teach, often excessively or morally.", synonyms: "Instructional, Moralizing" },
+            { word: "Disseminate", meaning: "To spread widely.", synonyms: "Distribute, Circulate" },
+            { word: "Feasible", meaning: "Capable of being done or achieved.", synonyms: "Possible, Practical" },
+            { word: "Flout", meaning: "To openly disregard a rule or law.", synonyms: "Defy, Disobey" },
+            { word: "Homogeneous", meaning: "Composed of similar or uniform elements.", synonyms: "Uniform, Alike" },
+            { word: "Humdrum", meaning: "Lacking excitement or variety.", synonyms: "Boring, Dull" },
+            { word: "Insipid", meaning: "Lacking flavor or interest.", synonyms: "Bland, Dull" },
+            { word: "Loquacious", meaning: "Tending to talk excessively.", synonyms: "Talkative, Wordy" },
+            { word: "Misanthropic", meaning: "Having a dislike or distrust of humanity.", synonyms: "Cynical, Antisocial" },
+            { word: "Misnomer", meaning: "An incorrect or misleading name.", synonyms: "Mistake, Inaccuracy" },
+            { word: "Negligent", meaning: "Failing to take proper care.", synonyms: "Careless, Lax" },
+            { word: "Obsequious", meaning: "Excessively eager to please or obey.", synonyms: "Servile, Submissive" },
+            { word: "Placate", meaning: "To calm or appease someone.", synonyms: "Appease, Pacify" },
+            { word: "Proclivity", meaning: "A natural inclination or tendency.", synonyms: "Inclination, Fondness" },
+            { word: "Puerile", meaning: "Childishly silly or immature.", synonyms: "Juvenile, Immature" },
+            { word: "Quixotic", meaning: "Exceedingly idealistic and impractical.", synonyms: "Impractical, Unrealistic" },
+            { word: "Spendthrift", meaning: "A person who spends money recklessly.", synonyms: "Big spender, Prodigal" },
+            { word: "Taciturn", meaning: "Habitually silent or reserved.", synonyms: "Quiet, Reserved" },
+            { word: "Wary", meaning: "Cautious or watchful.", synonyms: "Careful, Alert" },
+            
+            // ===== Group 2 =====
+            { word: "Adulterate", meaning: "To make something impure by adding inferior or harmful elements.", synonyms: "Contaminate, Corrupt" },
+            { word: "Advocate", meaning: "To support or argue in favor of something.", synonyms: "Support, Endorse" },
+            { word: "Aggrandize", meaning: "To increase power, status, or wealth.", synonyms: "Enhance, Elevate" },
+            { word: "Alacrity", meaning: "Brisk and cheerful readiness.", synonyms: "Eagerness, Willingness" },
+            { word: "Ambivalent", meaning: "Having mixed or conflicting feelings.", synonyms: "Uncertain, Undecided" },
+            { word: "Ameliorate", meaning: "To make a bad situation better.", synonyms: "Improve, Alleviate" },
+            { word: "Amenable", meaning: "Open and responsive to suggestion or change.", synonyms: "Receptive, Cooperative" },
+            { word: "Anachronistic", meaning: "Belonging to a different time period than expected.", synonyms: "Outdated, Antiquated" },
+            { word: "Audacious", meaning: "Bold or daring, sometimes disrespectfully so.", synonyms: "Bold, Brazen" },
+            { word: "Avaricious", meaning: "Extremely greedy for wealth or gain.", synonyms: "Greedy, Covetous" },
+            { word: "Banal", meaning: "So lacking in originality as to be dull.", synonyms: "Trite, Unoriginal" },
+            { word: "Benign", meaning: "Harmless or kind in nature.", synonyms: "Gentle, Harmless" },
+            { word: "Brazen", meaning: "Bold and shameless in behavior.", synonyms: "Shameless, Bold" },
+            { word: "Calumny", meaning: "False and malicious statements harming reputation.", synonyms: "Slander, Defamation" },
+            { word: "Candid", meaning: "Truthful and straightforward.", synonyms: "Frank, Honest" },
+            { word: "Castigate", meaning: "To criticize or punish severely.", synonyms: "Rebuke, Scold" },
+            { word: "Caustic", meaning: "Harsh or biting in tone; corrosive.", synonyms: "Bitter, Scathing" },
+            { word: "Convoluted", meaning: "Extremely complex and difficult to follow.", synonyms: "Complicated, Complex" },
+            { word: "Contrite", meaning: "Feeling remorse or guilt.", synonyms: "Remorseful, Penitent" },
+            { word: "Covet", meaning: "To strongly desire what belongs to another.", synonyms: "Desire, Envy"},
+            { word: "Craven", meaning: "Lacking courage.", synonyms: "Cowardly, Timid" },
+            { word: "Decorum", meaning: "Proper behavior or etiquette.", synonyms: "Propriety, Manners" },
+            { word: "Deft", meaning: "Skilled and nimble.", synonyms: "Skillful, Adroit" },
+            { word: "Demur", meaning: "To object or express doubt.", synonyms: "Object, Protest" },
+            { word: "Derivative", meaning: "Lacking originality; copied from another source.", synonyms: "Unoriginal, Imitative" },
+            { word: "Desiccate", meaning: "To dry out completely.", synonyms: "Dry, Dehydrate" },
+            { word: "Diatribe", meaning: "A bitter and angry speech or rant.", synonyms: "Tirade, Rant" },
+            { word: "Incredulous", meaning: "Unwilling or unable to believe something.", synonyms: "Skeptical, Doubtful" },
+            { word: "Ingenious", meaning: "Clever, inventive, or original.", synonyms: "Clever, Inventive" },
+            { word: "Ingenuous", meaning: "Innocent, naive, and sincere.", synonyms: "Naive, Frank" },
+
+          
+            // ===== Group 3 =====
+            { word: "Abate", meaning: "To lessen in intensity or severity.", synonyms: "Diminish, Subside" },
+            { word: "Abjure", meaning: "To formally reject or renounce.", synonyms: "Renounce, Forswear" },
+            { word: "Anomalous", meaning: "Deviating from what is normal or expected.", synonyms: "Irregular, Abnormal" },
+            { word: "Antipathy", meaning: "A deep-seated feeling of dislike or hostility.", synonyms: "Hostility, Aversion" },
+            { word: "Arcane", meaning: "Understood by only a small number of people.", synonyms: "Obscure, Esoteric" },
+            { word: "Arduous", meaning: "Requiring great effort or endurance.", synonyms: "Strenuous, Difficult" },
+            { word: "Artless", meaning: "Simple or lacking guile; sometimes naive.", synonyms: "Naive, Plain" },
+            { word: "Ascetic", meaning: "Practicing severe self-discipline and abstention.", synonyms: "Austere, Self-denying" },
+            { word: "Assuage", meaning: "To relieve or ease pain or distress.", synonyms: "Alleviate, Mitigate" },
+            { word: "Betray", meaning: "To reveal unintentionally or be disloyal.", synonyms: "Expose, Disclose" },
+            { word: "Bucolic", meaning: "Associated with the pleasant aspects of the countryside.", synonyms: "Pastoral, Rural" },
+            { word: "Burgeon", meaning: "To grow or increase rapidly.", synonyms: "Expand, Flourish" },
+            { word: "Cacophonous", meaning: "Producing a harsh, discordant sound.", synonyms: "Harsh, Noisy" },
+            { word: "Canonize", meaning: "To regard as highly sacred or exalted.", synonyms: "Venerate, Deify" },
+            { word: "Censure", meaning: "To express strong disapproval.", synonyms: "Condemn, Criticize" },
+            { word: "Chicanery", meaning: "The use of trickery or deception.", synonyms: "Deceit, Fraud" },
+            { word: "Coalesce", meaning: "To come together to form one whole.", synonyms: "Unite, Merge" },
+            { word: "Cogent", meaning: "Clear, logical, and convincing.", synonyms: "Compelling, Persuasive" },
+            { word: "Copious", meaning: "Existing in large quantities.", synonyms: "Abundant, Plentiful" },
+            { word: "Cosmopolitan", meaning: "Sophisticated and familiar with diverse cultures.", synonyms: "Worldly, Cultured" },
+            { word: "Deference", meaning: "Respectful submission or regard.", synonyms: "Respect, Esteem" },
+            { word: "Desultory", meaning: "Lacking plan, purpose, or enthusiasm.", synonyms: "Aimless, Unfocused" },
+            { word: "Diffident", meaning: "Shy or lacking self-confidence.", synonyms: "Timid, Reserved" },
+            { word: "Dilatory", meaning: "Intentionally slow or delaying.", synonyms: "Tardy, Procrastinating" },
+            { word: "Equivocate", meaning: "To speak ambiguously to avoid commitment.", synonyms: "Hedge, Prevaricate" },
+            { word: "Polarize", meaning: "To divide into opposing groups.", synonyms: "Divide, Split" },
+            { word: "Prodigal", meaning: "Wasteful or extravagant with resources.", synonyms: "Extravagant, Wasteful" },
+            { word: "Verbose", meaning: "Using more words than necessary.", synonyms: "Wordy, Long-winded" }
+
+          
+            // ===== Group 4 =====
+            { word: "Abstain", meaning: "To deliberately avoid or refrain from something.", synonyms: "Refrain, Desist" },
+            { word: "Approbation", meaning: "Praise or approval.", synonyms: "Approval, Commendation" },
+            { word: "Cherish", meaning: "To hold dear or protect lovingly.", synonyms: "Treasure, Value" },
+            { word: "Corroborate", meaning: "To confirm or support with evidence.", synonyms: "Verify, Substantiate" },
+            { word: "Disparate", meaning: "Fundamentally different or distinct.", synonyms: "Dissimilar, Contrasting" },
+            { word: "Emulate", meaning: "To imitate with the goal of matching or surpassing.", synonyms: "Imitate, Copy" },
+            { word: "Enervate", meaning: "To weaken or drain energy.", synonyms: "Exhaust, Fatigue" },
+            { word: "Ephemeral", meaning: "Lasting for a very short time.", synonyms: "Transient, Fleeting" },
+            { word: "Fervid", meaning: "Intensely passionate or enthusiastic.", synonyms: "Ardent, Passionate" },
+            { word: "Garrulous", meaning: "Excessively talkative.", synonyms: "Loquacious, Wordy" },
+            { word: "Incendiary", meaning: "Likely to provoke conflict or strong emotions.", synonyms: "Inflammatory, Provocative" },
+            { word: "Inimical", meaning: "Harmful or hostile.", synonyms: "Adverse, Hostile" },
+            { word: "Intimate", meaning: "To suggest subtly or imply.", synonyms: "Imply, Hint" },
+            { word: "Invigorate", meaning: "To energize or refresh.", synonyms: "Energize, Revitalize" },
+            { word: "Mitigate", meaning: "To make less severe or painful.", synonyms: "Alleviate, Reduce" },
+            { word: "Obsolete", meaning: "No longer in use or outdated.", synonyms: "Outdated, Archaic" },
+            { word: "Opaque", meaning: "Not clear or difficult to understand.", synonyms: "Obscure, Unclear" },
+            { word: "Paradigmatic", meaning: "Serving as a typical example or model.", synonyms: "Exemplary, Representative" },
+            { word: "Pedantic", meaning: "Excessively concerned with minor details.", synonyms: "Nitpicky, Academic" },
+            { word: "Placid", meaning: "Calm and peaceful in manner.", synonyms: "Serene, Tranquil" },
+            { word: "Polemical", meaning: "Expressing strong controversial opinions.", synonyms: "Argumentative, Controversial" },
+              { word: "Precipitate", meaning: "To cause something to happen suddenly.", synonyms: "Trigger, Hasten" },
+              { word: "Profundity", meaning: "Great depth of wisdom or insight.", synonyms: "Depth, Insight" },
+              { word: "Prophetic", meaning: "Able to predict future events.", synonyms: "Predictive, Visionary" },
+              { word: "Prudent", meaning: "Showing careful judgment.", synonyms: "Wise, Cautious" },
+              { word: "Punctilious", meaning: "Extremely attentive to detail or rules.", synonyms: "Meticulous, Precise" },
+              { word: "Recondite", meaning: "Difficult to understand; obscure.", synonyms: "Obscure, Arcane" },
+              { word: "Scrupulous", meaning: "Careful and morally upright.", synonyms: "Conscientious, Ethical" },
+              { word: "Tranquil", meaning: "Peaceful and calm.", synonyms: "Calm, Serene" },
+              { word: "Vacillate", meaning: "To waver between different opinions.", synonyms: "Waver, Hesitate" }
+          
+            // ===== Group 5 =====
+            { word: "Aloof", meaning: "Emotionally distant or detached.", synonyms: "Detached, Distant" },
+            { word: "Clangor", meaning: "A loud, harsh noise.", synonyms: "Clamor, Din" },
+            { word: "Conventional", meaning: "Following accepted customs or standards.", synonyms: "Traditional, Orthodox" },
+            { word: "Debunk", meaning: "To expose as false or exaggerated.", synonyms: "Disprove, Expose" },
+            { word: "Diminutive", meaning: "Very small in size.", synonyms: "Tiny, Petite" },
+            { word: "Discernible", meaning: "Able to be perceived or recognized.", synonyms: "Noticeable, Detectable" },
+            { word: "Enigmatic", meaning: "Difficult to understand or mysterious.", synonyms: "Mysterious, Obscure" },
+            { word: "Estranged", meaning: "Emotionally separated or alienated.", synonyms: "Alienated, Separated" },
+            { word: "Extravagant", meaning: "Excessive or wasteful, especially with money.", synonyms: "Lavish, Excessive" },
+            { word: "Fanciful", meaning: "Overly imaginative or unrealistic.", synonyms: "Whimsical, Unrealistic" },
+            { word: "Frivolous", meaning: "Lacking seriousness or importance.", synonyms: "Trivial, Silly" },
+            { word: "Heterogeneous", meaning: "Composed of diverse or varied elements.", synonyms: "Diverse, Mixed" },
+            { word: "Imperious", meaning: "Arrogantly domineering.", synonyms: "Domineering, Overbearing" },
+            { word: "Impertinent", meaning: "Disrespectful or irrelevant.", synonyms: "Insolent, Rude" },
+            { word: "Invasive", meaning: "Intrusive or spreading aggressively.", synonyms: "Intrusive, Encroaching" },
+            { word: "Irresolute", meaning: "Uncertain or indecisive.", synonyms: "Hesitant, Indecisive" },
+            { word: "Laudable", meaning: "Deserving praise.", synonyms: "Praiseworthy, Admirable" },
+            { word: "Lax", meaning: "Not strict or careful enough.", synonyms: "Careless, Lenient" },
+            { word: "Marginalize", meaning: "To treat as insignificant.", synonyms: "Sideline, Minimize" },
+            { word: "Panache", meaning: "Flair or confident style.", synonyms: "Flair, Swagger" },
+            { word: "Plodding", meaning: "Moving slowly and laboriously.", synonyms: "Slow, Laborious" },
+              { word: "Prosaic", meaning: "Dull, ordinary, or unimaginative.", synonyms: "Dull, Ordinary" },
+              { word: "Remedial", meaning: "Serving to correct or improve something.", synonyms: "Corrective, Restorative" },
+              { word: "Restive", meaning: "Unable to stay still or calm.", synonyms: "Restless, Uneasy" },
+              { word: "Sporadic", meaning: "Occurring irregularly.", synonyms: "Irregular, Occasional" },
+              { word: "Stigmatize", meaning: "To label as disgraceful.", synonyms: "Brand, Shame" },
+              { word: "Undermine", meaning: "To weaken gradually or secretly.", synonyms: "Weaken, Sabotage" },
+              { word: "Utterly", meaning: "Completely or entirely.", synonyms: "Completely, Totally" },
+              { word: "Weary", meaning: "Physically or mentally tired.", synonyms: "Tired, Exhausted" },
+              { word: "Zealous", meaning: "Showing intense enthusiasm or passion.", synonyms: "Enthusiastic, Fervent" }
+
+          
+            // ===== Group 6 =====
+            { word: "Admonish", meaning: "To warn or reprimand someone firmly.", synonyms: "Rebuke, Warn" },
+            { word: "Aesthetic", meaning: "Concerned with beauty or the appreciation of beauty.", synonyms: "Artistic, Visual" },
+            { word: "Affectation", meaning: "An artificial or exaggerated behavior meant to impress.", synonyms: "Pretense, Pose" },
+            { word: "Alleviate", meaning: "To reduce the severity of something unpleasant.", synonyms: "Relieve, Ease" },
+            { word: "Analogous", meaning: "Comparable in certain respects.", synonyms: "Similar, Comparable" },
+            { word: "Bolster", meaning: "To support or strengthen.", synonyms: "Support, Reinforce" },
+            { word: "Chauvinistic", meaning: "Excessively biased in favor of one’s own group.", synonyms: "Biased, Jingoistic" },
+            { word: "Connoisseur", meaning: "An expert judge in matters of taste.", synonyms: "Expert, Aficionado" },
+            { word: "Dissemble", meaning: "To conceal one’s true motives or feelings.", synonyms: "Deceive, Pretend" },
+            { word: "Dogged", meaning: "Showing stubborn determination.", synonyms: "Persistent, Tenacious" },
+            { word: "Dupe", meaning: "To trick or deceive someone.", synonyms: "Deceive, Swindle" },
+            { word: "Empirical", meaning: "Based on observation or experience.", synonyms: "Experimental, Observed" },
+            { word: "Engender", meaning: "To cause or give rise to.", synonyms: "Produce, Generate" },
+            { word: "Entitled", meaning: "Believing oneself to deserve special treatment.", synonyms: "Privileged, Arrogant" },
+            { word: "Pertinacious", meaning: "Holding firmly to a belief or course of action.", synonyms: "Stubborn, Tenacious" },
+            { word: "Presumptuous", meaning: "Overstepping bounds with confidence.", synonyms: "Arrogant, Bold" },
+            { word: "Probity", meaning: "Strong moral integrity and honesty.", synonyms: "Integrity, Honesty" },
+            { word: "Proliferate", meaning: "To increase rapidly in number.", synonyms: "Multiply, Expand" },
+            { word: "Specious", meaning: "Appearing correct but actually false.", synonyms: "Misleading, False" },
+            { word: "Spurious", meaning: "Not genuine or authentic.", synonyms: "Fake, False" },
+            { word: "Subjective", meaning: "Based on personal feelings rather than facts.", synonyms: "Personal, Biased" },
+            { word: "Subvert", meaning: "To undermine or weaken authority.", synonyms: "Undermine, Destabilize" },
+            { word: "Timorous", meaning: "Showing fear or lack of confidence.", synonyms: "Timid, Fearful" },
+            { word: "Tortuous", meaning: "Overly complex or full of twists.", synonyms: "Complex, Winding" },
+            { word: "Tractable", meaning: "Easy to control or manage.", synonyms: "Manageable, Docile" },
+            { word: "Transient", meaning: "Lasting for a short time.", synonyms: "Temporary, Fleeting" },
+            { word: "Ubiquitous", meaning: "Present everywhere at once.", synonyms: "Everywhere, Omnipresent" },
+            { word: "Underscore", meaning: "To emphasize or stress.", synonyms: "Emphasize, Highlight" },
+            { word: "Venal", meaning: "Open to bribery or corruption.", synonyms: "Corrupt, Bribable" },
+            { word: "Venerate", meaning: "To regard with deep respect.", synonyms: "Revere, Honor" }
+
+          
+            // ===== Group 7 =====
+            { word: "Appease", meaning: "To calm or satisfy someone.", synonyms: "Pacify, Placate" },
+            { word: "Arbitrary", meaning: "Based on random choice or personal whim.", synonyms: "Random, Capricious" },
+            { word: "Archaic", meaning: "Very old-fashioned or outdated.", synonyms: "Obsolete, Ancient" },
+            { word: "Clamorous", meaning: "Extremely loud and noisy.", synonyms: "Noisy, Boisterous" },
+            { word: "Dearth", meaning: "A scarcity or lack of something.", synonyms: "Shortage, Lack" },
+            { word: "Explicable", meaning: "Capable of being explained.", synonyms: "Understandable, Clear" },
+            { word: "Hyperbole", meaning: "Exaggerated statements not meant literally.", synonyms: "Exaggeration, Overstatement" },
+            { word: "Immutable", meaning: "Unable to be changed.", synonyms: "Unchangeable, Fixed" },
+            { word: "Indefatigable", meaning: "Incapable of being tired out.", synonyms: "Tireless, Persistent" },
+            { word: "Indolent", meaning: "Habitually lazy.", synonyms: "Lazy, Sluggish" },
+            { word: "Insular", meaning: "Narrow-minded or isolated.", synonyms: "Parochial, Narrow" },
+            { word: "Intransigent", meaning: "Unwilling to compromise.", synonyms: "Stubborn, Unyielding" },
+            { word: "Intrepid", meaning: "Fearless and adventurous.", synonyms: "Brave, Daring" },
+            { word: "Irreverent", meaning: "Showing a lack of respect.", synonyms: "Disrespectful, Flippant" },
+            { word: "Loathe", meaning: "To feel intense dislike or disgust.", synonyms: "Despise, Detest" },
+            { word: "Malign", meaning: "To speak about someone with harmful intent.", synonyms: "Slander, Defame" },
+            { word: "Malleable", meaning: "Easily influenced or shaped.", synonyms: "Flexible, Adaptable" },
+            { word: "Neophyte", meaning: "A beginner or novice.", synonyms: "Novice, Beginner" },
+            { word: "Platitude", meaning: "A dull or overused remark.", synonyms: "Cliché, Trite remark" },
+            { word: "Prescient", meaning: "Having knowledge of events before they happen.", synonyms: "Foresighted, Predictive" },
+            { word: "Pristine", meaning: "In its original, unspoiled condition.", synonyms: "Pure, Unspoiled" },
+            { word: "Reproach", meaning: "To express criticism or disappointment.", synonyms: "Criticize, Rebuke" },
+            { word: "Robust", meaning: "Strong and healthy; able to withstand stress.", synonyms: "Strong, Hardy" },
+            { word: "Salubrious", meaning: "Promoting health or well-being.", synonyms: "Healthy, Wholesome" },
+            { word: "Sanction", meaning: "To officially approve or permit.", synonyms: "Authorize, Approve" },
+            { word: "Sedulous", meaning: "Diligent and attentive to detail.", synonyms: "Diligent, Industrious" },
+            { word: "Soporific", meaning: "Causing sleep or drowsiness.", synonyms: "Sleep-inducing, Drowsy" },
+            { word: "Stern", meaning: "Strict, serious, or harsh.", synonyms: "Severe, Strict" },
+            { word: "Tendentious", meaning: "Biased toward a particular viewpoint.", synonyms: "Biased, Partisan" }
+
+          
+            // ===== Group 8 =====
+            { word: "Accentuate", meaning: "To emphasize or make more noticeable.", synonyms: "Emphasize, Highlight" },
+            { word: "Conjectural", meaning: "Based on guesswork rather than certainty.", synonyms: "Speculative, Hypothetical" },
+            { word: "Convivial", meaning: "Friendly and sociable.", synonyms: "Sociable, Genial" },
+            { word: "Decadent", meaning: "Characterized by excessive indulgence.", synonyms: "Self-indulgent, Luxurious" },
+            { word: "Egregious", meaning: "Outstandingly bad or shocking.", synonyms: "Shocking, Appalling" },
+            { word: "Evanescent", meaning: "Quickly fading or disappearing.", synonyms: "Fleeting, Transient" },
+            { word: "Flamboyant", meaning: "Showy and confident in behavior or appearance.", synonyms: "Showy, Ostentatious" },
+            { word: "Forestall", meaning: "To prevent something before it happens.", synonyms: "Prevent, Avert" },
+            { word: "Gainsay", meaning: "To deny or contradict.", synonyms: "Deny, Dispute" },
+            { word: "Galvanize", meaning: "To stimulate into action.", synonyms: "Energize, Motivate" },
+            { word: "Indiscriminate", meaning: "Lacking careful judgment.", synonyms: "Careless, Random" },
+            { word: "Innocuous", meaning: "Not harmful or offensive.", synonyms: "Harmless, Benign" },
+            { word: "Momentary", meaning: "Lasting for a very short time.", synonyms: "Brief, Fleeting" },
+            { word: "Mundane", meaning: "Ordinary and lacking excitement.", synonyms: "Ordinary, Dull" },
+            { word: "Nettlesome", meaning: "Causing irritation or annoyance.", synonyms: "Annoying, Irritating" },
+            { word: "Nullify", meaning: "To make something ineffective or invalid.", synonyms: "Invalidate, Cancel" },
+            { word: "Obviate", meaning: "To remove or avoid the need for.", synonyms: "Prevent, Eliminate" },
+            { word: "Omnipresent", meaning: "Present everywhere at once.", synonyms: "Ubiquitous, Ever-present" },
+            { word: "Oust", meaning: "To remove forcefully from a position.", synonyms: "Expel, Eject" },
+            { word: "Palpable", meaning: "So intense as to be easily perceived.", synonyms: "Obvious, Tangible" },
+            { word: "Parochial", meaning: "Narrow-minded or limited in outlook.", synonyms: "Narrow, Insular" },
+            { word: "Pecuniary", meaning: "Related to money.", synonyms: "Financial, Monetary" },
+            { word: "Penurious", meaning: "Extremely poor or stingy.", synonyms: "Stingy, Miserly" },
+            { word: "Perfunctory", meaning: "Done with little effort or interest.", synonyms: "Routine, Halfhearted" },
+            { word: "Profound", meaning: "Very great or intense; showing deep insight.", synonyms: "Deep, Insightful" },
+            { word: "Prolix", meaning: "Excessively long or wordy.", synonyms: "Wordy, Long-winded" },
+            { word: "Quiescent", meaning: "Inactive or dormant.", synonyms: "Dormant, Still" },
+            { word: "Remonstrate", meaning: "To argue or protest strongly.", synonyms: "Protest, Object" },
+            { word: "Tenuous", meaning: "Weak or insubstantial.", synonyms: "Weak, Flimsy" },
+            { word: "Unprecedented", meaning: "Never done or known before.", synonyms: "Novel, Unheard-of" }
+
+          
+            // ===== Group 9 =====
+            { word: "Boorish", meaning: "Rude or unrefined in behavior.", synonyms: "Rude, Crude" },
+            { word: "Brook", meaning: "To tolerate or endure.", synonyms: "Tolerate, Endure" },
+            { word: "Circumspect", meaning: "Careful to consider all consequences.", synonyms: "Cautious, Prudent" },
+            { word: "Comity", meaning: "Mutual civility or respect.", synonyms: "Courtesy, Harmony" },
+            { word: "Commensurate", meaning: "Corresponding in size or degree.", synonyms: "Proportionate, Equivalent" },
+            { word: "Cordial", meaning: "Warm and friendly.", synonyms: "Friendly, Warm" },
+            { word: "Deleterious", meaning: "Causing harm or damage.", synonyms: "Harmful, Damaging" },
+            { word: "Dichotomy", meaning: "A division into two contrasting parts.", synonyms: "Division, Split" },
+            { word: "Edify", meaning: "To instruct or improve morally or intellectually.", synonyms: "Educate, Enlighten" },
+            { word: "Elicit", meaning: "To draw out a response.", synonyms: "Extract, Evoke" },
+            { word: "Erudite", meaning: "Having great scholarly knowledge.", synonyms: "Learned, Scholarly" },
+            { word: "Fecund", meaning: "Highly productive or fertile.", synonyms: "Fertile, Productive" },
+            { word: "Feeble", meaning: "Lacking physical strength.", synonyms: "Weak, Frail" },
+            { word: "Felicitous", meaning: "Well-suited or pleasing.", synonyms: "Apt, Appropriate" },
+            { word: "Forbear", meaning: "To refrain from doing something.", synonyms: "Refrain, Abstain" },
+            { word: "Haphazard", meaning: "Lacking organization or planning.", synonyms: "Random, Chaotic" },
+            { word: "Impede", meaning: "To obstruct or slow progress.", synonyms: "Hinder, Obstruct" },
+            { word: "Impetuous", meaning: "Acting quickly without thought.", synonyms: "Rash, Hasty" },
+            { word: "Irascible", meaning: "Easily angered.", synonyms: "Irritable, Testy" },
+            { word: "Mercenary", meaning: "Motivated primarily by money.", synonyms: "Greedy, Self-interested" },
+            { word: "Meticulous", meaning: "Showing great attention to detail.", synonyms: "Careful, Precise" },
+            { word: "Mollifying", meaning: "Soothing anger or anxiety.", synonyms: "Soothing, Calming" },
+            { word: "Morose", meaning: "Gloomy or sullen.", synonyms: "Gloomy, Sullen" },
+            { word: "Opaque", meaning: "Difficult to understand; not clear.", synonyms: "Obscure, Unclear" },
+            { word: "Peripheral", meaning: "Of secondary importance.", synonyms: "Secondary, Marginal" },
+            { word: "Propitious", meaning: "Favorably inclined; promising.", synonyms: "Favorable, Auspicious" },
+            { word: "Prudish", meaning: "Easily shocked by matters of sex.", synonyms: "Puritanical, Prim" },
+            { word: "Recondite", meaning: "Difficult to understand; obscure.", synonyms: "Obscure, Arcane" },
+            { word: "Stoic", meaning: "Enduring pain without complaint.", synonyms: "Unemotional, Resigned" },
+            { word: "Tacit", meaning: "Understood without being stated.", synonyms: "Implied, Unspoken" }
+
+          
+            // ===== Group 10 =====
+            { word: "Acumen", meaning: "Quickness and accuracy in judgment.", synonyms: "Insight, Shrewdness" },
+            { word: "Antithesis", meaning: "The direct opposite.", synonyms: "Contrast, Opposite" },
+            { word: "Ascribe", meaning: "To attribute something to a cause or source.", synonyms: "Attribute, Assign" },
+            { word: "Befuddled", meaning: "Completely confused or puzzled.", synonyms: "Confused, Perplexed" },
+            { word: "Eschew", meaning: "To deliberately avoid.", synonyms: "Avoid, Shun" },
+            { word: "Esoteric", meaning: "Understood by only a small group.", synonyms: "Obscure, Arcane" },
+            { word: "Evasive", meaning: "Avoiding direct answers or action.", synonyms: "Indirect, Elusive" },
+            { word: "Exculpate", meaning: "To free someone from blame.", synonyms: "Absolve, Clear" },
+            { word: "Expedite", meaning: "To speed up a process.", synonyms: "Accelerate, Hasten" },
+            { word: "Fastidious", meaning: "Very attentive to detail; hard to please.", synonyms: "Meticulous, Fussy" },
+            { word: "Feign", meaning: "To pretend or fake.", synonyms: "Pretend, Simulate" },
+            { word: "Furtive", meaning: "Secretive or sneaky.", synonyms: "Stealthy, Sneaky" },
+            { word: "Hamper", meaning: "To hinder or obstruct.", synonyms: "Impede, Restrict" },
+            { word: "Indispensable", meaning: "Absolutely necessary.", synonyms: "Essential, Necessary" },
+            { word: "Lament", meaning: "To express sorrow or regret.", synonyms: "Mourn, Grieve" },
+            { word: "Myopic", meaning: "Lacking foresight or imagination.", synonyms: "Shortsighted, Narrow" },
+            { word: "Nonchalant", meaning: "Calm and unconcerned.", synonyms: "Indifferent, Casual" },
+            { word: "Partial", meaning: "Biased or favoring one side.", synonyms: "Biased, Prejudiced" },
+            { word: "Pensive", meaning: "Deeply thoughtful.", synonyms: "Reflective, Thoughtful" },
+            { word: "Portend", meaning: "To indicate something in the future.", synonyms: "Foretell, Predict" },
+            { word: "Reconcile", meaning: "To restore friendly relations.", synonyms: "Resolve, Settle" },
+            { word: "Recondite", meaning: "Difficult to understand; obscure.", synonyms: "Obscure, Arcane" },
+            { word: "Refute", meaning: "To prove wrong using evidence.", synonyms: "Disprove, Rebut" },
+            { word: "Scrutinize", meaning: "To examine closely.", synonyms: "Inspect, Analyze" },
+            { word: "Solicitous", meaning: "Showing concern or care.", synonyms: "Concerned, Attentive" },
+            { word: "Squalid", meaning: "Filthy or morally degraded.", synonyms: "Dirty, Wretched" },
+            { word: "Staunch", meaning: "Firmly loyal or committed.", synonyms: "Steadfast, Loyal" },
+            { word: "Terse", meaning: "Brief and to the point.", synonyms: "Concise, Curt" },
+            { word: "Trivial", meaning: "Of little importance.", synonyms: "Insignificant, Minor" },
+            { word: "Vacuous", meaning: "Empty of thought or intelligence.", synonyms: "Mindless, Empty-headed" }
+
+          
+            // ===== Group 11 =====
+            { word: "Abhor", meaning: "To hate deeply.", synonyms: "Detest, Loathe" },
+            { word: "Boisterous", meaning: "Noisy, energetic, and cheerful.", synonyms: "Rowdy, Lively" },
+            { word: "Chivalrous", meaning: "Courteous and honorable.", synonyms: "Gallant, Polite" },
+            { word: "Churlish", meaning: "Rude and lacking manners.", synonyms: "Rude, Ill-mannered" },
+            { word: "Clandestine", meaning: "Kept secret or hidden.", synonyms: "Secretive, Covert" },
+            { word: "Complacent", meaning: "Self-satisfied and unconcerned.", synonyms: "Smug, Satisfied" },
+            { word: "Cumbersome", meaning: "Heavy, awkward, or difficult to manage.", synonyms: "Unwieldy, Bulky" },
+            { word: "Debilitating", meaning: "Weakening or exhausting.", synonyms: "Weakening, Draining" },
+            { word: "Deliberate", meaning: "Done intentionally or after careful thought.", synonyms: "Intentional, Careful" },
+            { word: "Droll", meaning: "Amusing in an odd way.", synonyms: "Whimsical, Funny" },
+            { word: "Eccentric", meaning: "Unconventional or slightly strange.", synonyms: "Odd, Unconventional" },
+            { word: "Fractious", meaning: "Easily irritated or unruly.", synonyms: "Irritable, Quarrelsome" },
+            { word: "Limpid", meaning: "Clear and easy to understand.", synonyms: "Clear, Lucid" },
+            { word: "Mawkish", meaning: "Overly sentimental.", synonyms: "Sentimental, Sappy" },
+            { word: "Obeisance", meaning: "Respectful submission or reverence.", synonyms: "Deference, Homage" },
+            { word: "Ostentatious", meaning: "Designed to impress or attract notice.", synonyms: "Showy, Flashy" },
+            { word: "Panacea", meaning: "A solution for all problems.", synonyms: "Cure-all, Remedy" },
+            { word: "Perfunctory", meaning: "Done with little effort or interest.", synonyms: "Routine, Halfhearted" },
+            { word: "Perilous", meaning: "Dangerous or risky.", synonyms: "Hazardous, Risky" },
+            { word: "Pervasive", meaning: "Spreading widely throughout.", synonyms: "Widespread, Extensive" },
+            { word: "Platonic", meaning: "Non-romantic and affectionate.", synonyms: "Nonsexual, Friendly" },
+            { word: "Resilient", meaning: "Able to recover quickly from difficulties.", synonyms: "Hardy, Adaptable" },
+            { word: "Resolute", meaning: "Firmly determined.", synonyms: "Determined, Steadfast" },
+            { word: "Rhetorical", meaning: "Asked for effect rather than an answer.", synonyms: "Figurative, Persuasive" },
+            { word: "Superfluous", meaning: "More than is needed.", synonyms: "Excessive, Unnecessary" },
+            { word: "Tirade", meaning: "A long, angry speech.", synonyms: "Rant, Diatribe" },
+            { word: "Truculent", meaning: "Eager to fight or argue.", synonyms: "Aggressive, Belligerent" },
+            { word: "Vindicate", meaning: "To clear from blame or suspicion.", synonyms: "Justify, Exonerate" },
+            { word: "Virulent", meaning: "Extremely hostile or poisonous.", synonyms: "Toxic, Malignant" },
+            { word: "Wary", meaning: "Cautious and watchful.", synonyms: "Careful, Alert" }
+
+          
+            // ===== Group 12 =====
+            { word: "Acrimonious", meaning: "Bitter and sharp in language or tone.", synonyms: "Bitter, Caustic" },
+            { word: "Belligerent", meaning: "Hostile and aggressive.", synonyms: "Aggressive, Combative" },
+            { word: "Beneficent", meaning: "Kind and charitable; producing good.", synonyms: "Kind, Generous" },
+            { word: "Canny", meaning: "Shrewd and cautious.", synonyms: "Shrewd, Clever" },
+            { word: "Cavalier", meaning: "Showing a lack of concern; dismissive.", synonyms: "Careless, Offhand" },
+            { word: "Distressed", meaning: "Suffering anxiety or sorrow.", synonyms: "Troubled, Upset" },
+            { word: "Dwindling", meaning: "Gradually decreasing.", synonyms: "Declining, Shrinking" },
+            { word: "Eclipse", meaning: "To overshadow or surpass.", synonyms: "Obscure, Outshine" },
+            { word: "Encyclopedic", meaning: "Extremely comprehensive in knowledge.", synonyms: "Comprehensive, Extensive" },
+            { word: "Exacerbate", meaning: "To make a problem worse.", synonyms: "Worsen, Aggravate" },
+            { word: "Exasperated", meaning: "Extremely irritated or frustrated.", synonyms: "Frustrated, Irritated" },
+            { word: "Fungible", meaning: "Interchangeable with something of equal value.", synonyms: "Interchangeable, Replaceable" },
+            { word: "Hackneyed", meaning: "Overused and lacking originality.", synonyms: "Trite, Overused" },
+            { word: "Incongruous", meaning: "Out of place or inappropriate.", synonyms: "Inappropriate, Jarring" },
+            { word: "Interchangeable", meaning: "Able to be substituted for one another.", synonyms: "Replaceable, Equivalent" },
+            { word: "Laconic", meaning: "Using very few words.", synonyms: "Brief, Terse" },
+            { word: "Lucrative", meaning: "Producing a great deal of profit.", synonyms: "Profitable, Gainful" },
+            { word: "Magisterial", meaning: "Having great authority; domineering.", synonyms: "Authoritative, Commanding" },
+            { word: "Onerous", meaning: "Involving heavy burden or effort.", synonyms: "Burdensome, Difficult" },
+            { word: "Opprobrium", meaning: "Harsh criticism or public disgrace.", synonyms: "Disgrace, Condemnation" },
+            { word: "Platonic", meaning: "Non-romantic and affectionate.", synonyms: "Nonsexual, Friendly" },
+            { word: "Resilient", meaning: "Able to recover quickly from difficulties.", synonyms: "Hardy, Adaptable" },
+            { word: "Resolute", meaning: "Firmly determined.", synonyms: "Determined, Steadfast" },
+            { word: "Rhetorical", meaning: "Asked for effect rather than an answer.", synonyms: "Figurative, Persuasive" },
+            { word: "Superfluous", meaning: "More than is needed.", synonyms: "Excessive, Unnecessary" },
+            { word: "Tirade", meaning: "A long, angry speech.", synonyms: "Rant, Diatribe" },
+            { word: "Truculent", meaning: "Eager to fight or argue.", synonyms: "Aggressive, Belligerent" },
+            { word: "Vindicate", meaning: "To clear from blame or suspicion.", synonyms: "Justify, Exonerate" },
+            { word: "Virulent", meaning: "Extremely hostile or poisonous.", synonyms: "Toxic, Malignant" },
+            { word: "Wary", meaning: "Cautious and watchful.", synonyms: "Careful, Alert" }
+
+          
+            // ===== Group 13 =====
+            { word: "Affinity", meaning: "A natural attraction or similarity.", synonyms: "Connection, Liking" },
+            { word: "Altruistic", meaning: "Concerned with the welfare of others.", synonyms: "Selfless, Charitable" },
+            { word: "Baroque", meaning: "Overly ornate or elaborate.", synonyms: "Ornate, Elaborate" },
+            { word: "Byzantine", meaning: "Excessively complex.", synonyms: "Complex, Intricate" },
+            { word: "Compromise", meaning: "To weaken or undermine.", synonyms: "Undermine, Jeopardize" },
+            { word: "Conciliatory", meaning: "Intended to soothe or reconcile.", synonyms: "Appeasing, Soothing" },
+            { word: "Countenance", meaning: "To approve or accept.", synonyms: "Approve, Permit" },
+            { word: "Covert", meaning: "Hidden or secret.", synonyms: "Secret, Concealed" },
+            { word: "Credible", meaning: "Believable or trustworthy.", synonyms: "Believable, Reliable" },
+            { word: "Diffuse", meaning: "To spread widely.", synonyms: "Disperse, Scatter" },
+            { word: "Documentary", meaning: "Based on real events or facts.", synonyms: "Factual, Nonfiction" },
+            { word: "Exhaustive", meaning: "Thorough and comprehensive.", synonyms: "Comprehensive, Thorough" },
+            { word: "Exhilarating", meaning: "Extremely exciting or stimulating.", synonyms: "Thrilling, Invigorating" },
+            { word: "Extraneous", meaning: "Irrelevant or unnecessary.", synonyms: "Irrelevant, Superfluous" },
+            { word: "Fervor", meaning: "Intense passion or enthusiasm.", synonyms: "Zeal, Passion" },
+            { word: "Futile", meaning: "Incapable of producing a result.", synonyms: "Useless, Ineffective" },
+            { word: "Illusory", meaning: "Based on illusion; unreal.", synonyms: "Unreal, Deceptive" },
+            { word: "Invidious", meaning: "Likely to cause resentment or unfair.", synonyms: "Resentful, Unjust" },
+            { word: "Lethargic", meaning: "Sluggish or lacking energy.", synonyms: "Sluggish, Inactive" },
+            { word: "Metaphorical", meaning: "Symbolic rather than literal.", synonyms: "Symbolic, Figurative" },
+            { word: "Panegyric", meaning: "A public speech or text of praise.", synonyms: "Eulogy, Tribute" },
+            { word: "Pedestrian", meaning: "Dull, ordinary, or unimaginative.", synonyms: "Ordinary, Bland" },
+            { word: "Peevish", meaning: "Easily irritated or annoyed.", synonyms: "Irritable, Petulant" },
+            { word: "Perceptive", meaning: "Having keen insight or understanding.", synonyms: "Insightful, Observant" },
+            { word: "Profound", meaning: "Very great or intense; showing deep insight.", synonyms: "Deep, Insightful" },
+            { word: "Reconcile", meaning: "To restore friendly relations or resolve differences.", synonyms: "Resolve, Settle" },
+            { word: "Redundant", meaning: "No longer needed; repetitive.", synonyms: "Superfluous, Repetitive" },
+            { word: "Robust", meaning: "Strong and healthy; vigorous.", synonyms: "Strong, Hardy" },
+            { word: "Spurious", meaning: "Not genuine; false.", synonyms: "False, Fake" },
+            { word: "Subtle", meaning: "Delicate or difficult to perceive.", synonyms: "Delicate, Elusive" }
+
+          
+            // ===== Group 14 =====
+            { word: "Acquiesce", meaning: "To agree or consent quietly without protest.", synonyms: "Consent, Comply" },
+            { word: "Adroit", meaning: "Skillful and clever in handling situations.", synonyms: "Skillful, Dexterous" },
+            { word: "Amend", meaning: "To change something in order to improve it.", synonyms: "Revise, Modify" },
+            { word: "Animus", meaning: "Strong hostility or resentment.", synonyms: "Hostility, Resentment" },
+            { word: "Apologist", meaning: "A person who defends something criticized.", synonyms: "Defender, Advocate" },
+            { word: "Astringent", meaning: "Harsh or severe in tone or manner.", synonyms: "Harsh, Severe" },
+            { word: "Collaborate", meaning: "To work jointly with others.", synonyms: "Cooperate, Team up" },
+            { word: "Competent", meaning: "Having sufficient ability or skill.", synonyms: "Capable, Qualified" },
+            { word: "Correlate", meaning: "To have a mutual relationship or connection.", synonyms: "Relate, Associate" },
+            { word: "Deride", meaning: "To mock or ridicule.", synonyms: "Ridicule, Mock" },
+            { word: "Dictate", meaning: "To give orders or commands.", synonyms: "Command, Order" },
+            { word: "Discreet", meaning: "Careful to avoid attention or preserve privacy.", synonyms: "Cautious, Prudent" },
+            { word: "Divorced", meaning: "Separated or disconnected from something.", synonyms: "Detached, Separated" },
+            { word: "Elitist", meaning: "Believing in superiority of an elite group.", synonyms: "Snobbish, Exclusive" },
+            { word: "Exacting", meaning: "Demanding great effort or attention.", synonyms: "Demanding, Rigorous" },
+            { word: "Flummoxed", meaning: "Completely confused or bewildered.", synonyms: "Perplexed, Baffled" },
+            { word: "Fruitful", meaning: "Producing good results.", synonyms: "Productive, Rewarding" },
+            { word: "Inborn", meaning: "Present from birth; innate.", synonyms: "Innate, Inherent" },
+            { word: "Reticent", meaning: "Reserved and unwilling to speak freely.", synonyms: "Reserved, Quiet" },
+            { word: "Stringent", meaning: "Strict or severe.", synonyms: "Strict, Rigid" },
+            { word: "Neutral", meaning: "Not supporting either side.", synonyms: "Impartial, Unbiased" },
+            { word: "Opaque", meaning: "Difficult to understand or unclear.", synonyms: "Obscure, Unclear" },
+            { word: "Paramount", meaning: "Of greatest importance.", synonyms: "Supreme, Crucial" },
+            { word: "Partiality", meaning: "Unfair bias in favor of something.", synonyms: "Bias, Preference" },
+            { word: "Plausible", meaning: "Seeming reasonable or probable.", synonyms: "Believable, Likely" },
+            { word: "Preclude", meaning: "To prevent something from happening.", synonyms: "Prevent, Exclude" },
+            { word: "Recondite", meaning: "Difficult to understand; obscure.", synonyms: "Obscure, Arcane" },
+            { word: "Serene", meaning: "Calm, peaceful, and untroubled.", synonyms: "Calm, Tranquil" },
+            { word: "Solemn", meaning: "Serious and dignified.", synonyms: "Serious, Grave" },
+            { word: "Tenable", meaning: "Able to be defended or maintained.", synonyms: "Defensible, Sustainable" }
+
+          
+            // ===== Group 15 =====
+            { word: "Alienate", meaning: "To make someone feel isolated or estranged.", synonyms: "Isolate, Estrange" },
+            { word: "Apathy", meaning: "Lack of interest or enthusiasm.", synonyms: "Indifference, Unconcern" },
+            { word: "Apropos", meaning: "Appropriate or relevant to the situation.", synonyms: "Relevant, Fitting" },
+            { word: "Apt", meaning: "Appropriate or having a tendency.", synonyms: "Suitable, Likely" },
+            { word: "Cloak", meaning: "To hide or conceal.", synonyms: "Conceal, Mask" },
+            { word: "Consensus", meaning: "General agreement.", synonyms: "Agreement, Accord" },
+            { word: "Distort", meaning: "To twist or misrepresent.", synonyms: "Misrepresent, Skew" },
+            { word: "Divergent", meaning: "Moving apart or differing.", synonyms: "Different, Deviating" },
+            { word: "Elated", meaning: "Very happy or joyful.", synonyms: "Overjoyed, Jubilant" },
+            { word: "Enchant", meaning: "To delight or charm.", synonyms: "Delight, Captivate" },
+            { word: "Entrenched", meaning: "Firmly established and difficult to change.", synonyms: "Fixed, Established" },
+            { word: "Exotic", meaning: "Foreign or strikingly unusual.", synonyms: "Foreign, Unusual" },
+            { word: "Exploitative", meaning: "Taking unfair advantage.", synonyms: "Abusive, Manipulative" },
+            { word: "Foreseeable", meaning: "Able to be predicted.", synonyms: "Predictable, Expected" },
+            { word: "Forsake", meaning: "To abandon or give up.", synonyms: "Abandon, Desert" },
+            { word: "Gratify", meaning: "To please or satisfy.", synonyms: "Satisfy, Please" },
+            { word: "Heed", meaning: "To pay attention to.", synonyms: "Notice, Regard" },
+            { word: "Judicious", meaning: "Showing good judgment.", synonyms: "Wise, Sensible" },
+            { word: "Lucid", meaning: "Clear and easy to understand.", synonyms: "Clear, Coherent" },
+            { word: "Pertinent", meaning: "Relevant to the matter at hand.", synonyms: "Relevant, Applicable" },
+            { word: "Sycophant", meaning: "A person who flatters excessively for advantage.", synonyms: "Flatterer, Toady" },
+            { word: "Tantamount", meaning: "Equivalent in seriousness or effect.", synonyms: "Equivalent, Equal" },
+            { word: "Thwart", meaning: "To prevent someone from accomplishing something.", synonyms: "Prevent, Foil" },
+            { word: "Tirade", meaning: "A long, angry speech.", synonyms: "Rant, Diatribe" },
+            { word: "Uncanny", meaning: "Strange or mysterious in an unsettling way.", synonyms: "Eerie, Strange" },
+            { word: "Unfettered", meaning: "Free from restrictions or constraints.", synonyms: "Unrestricted, Free" },
+            { word: "Unscrupulous", meaning: "Lacking moral principles.", synonyms: "Dishonest, Corrupt" },
+            { word: "Venerate", meaning: "To regard with deep respect.", synonyms: "Revere, Honor" },
+            { word: "Wanton", meaning: "Reckless or without restraint.", synonyms: "Reckless, Unrestrained" },
+            { word: "Zealot", meaning: "A fanatically committed person.", synonyms: "Fanatic, Extremist" }
+
+          
+            // ===== Group 16 =====
+            { word: "Antedate", meaning: "To occur before something in time.", synonyms: "Precede, Predate" },
+            { word: "Banish", meaning: "To expel or remove completely.", synonyms: "Expel, Exile" },
+            { word: "Bridle", meaning: "To restrain or control.", synonyms: "Restrain, Curb" },
+            { word: "Comply", meaning: "To act in accordance with rules or requests.", synonyms: "Obey, Conform" },
+            { word: "Crestfallen", meaning: "Disappointed or dejected.", synonyms: "Dejected, Downcast" },
+            { word: "Curtail", meaning: "To reduce or limit.", synonyms: "Reduce, Restrict" },
+            { word: "Elucidate", meaning: "To make something clear.", synonyms: "Clarify, Explain" },
+            { word: "Evade", meaning: "To avoid or escape, often cleverly.", synonyms: "Avoid, Dodge" },
+            { word: "Feckless", meaning: "Lacking skill or effectiveness.", synonyms: "Inept, Incompetent" },
+            { word: "Fester", meaning: "To worsen over time due to neglect.", synonyms: "Worsen, Decay" },
+            { word: "Iconoclastic", meaning: "Challenging traditional beliefs.", synonyms: "Rebellious, Unconventional" },
+            { word: "Immure", meaning: "To imprison or confine.", synonyms: "Confine, Enclose" },
+            { word: "Improvise", meaning: "To create without preparation.", synonyms: "Ad-lib, Invent" },
+            { word: "Inhibit", meaning: "To restrain or prevent.", synonyms: "Restrain, Hinder" },
+            { word: "Inscrutable", meaning: "Difficult to understand.", synonyms: "Mysterious, Enigmatic" },
+            { word: "Lionize", meaning: "To treat someone as a hero.", synonyms: "Celebrate, Idolize" },
+            { word: "Monotonous", meaning: "Dull due to repetition.", synonyms: "Repetitive, Tedious" },
+            { word: "Peculiar", meaning: "Strange or unusual.", synonyms: "Odd, Unusual" },
+            { word: "Premeditate", meaning: "To plan in advance.", synonyms: "Plan, Forethink" },
+            { word: "Profligate", meaning: "Recklessly wasteful.", synonyms: "Extravagant, Wasteful" },
+            { word: "Quell", meaning: "To suppress or put an end to.", synonyms: "Suppress, Subdue" },
+            { word: "Repudiate", meaning: "To reject or disown.", synonyms: "Reject, Deny" },
+            { word: "Rescind", meaning: "To revoke or cancel officially.", synonyms: "Revoke, Annul" },
+            { word: "Scruple", meaning: "A moral doubt or hesitation.", synonyms: "Misgiving, Doubt" },
+            { word: "Stagnant", meaning: "Not moving or progressing.", synonyms: "Inactive, Still" },
+            { word: "Suppress", meaning: "To put down or restrain.", synonyms: "Restrain, Quell" },
+            { word: "Unorthodox", meaning: "Contrary to accepted beliefs.", synonyms: "Unconventional, Heretical" },
+            { word: "Vindictive", meaning: "Having a strong desire for revenge.", synonyms: "Vengeful, Spiteful" },
+            { word: "Volatile", meaning: "Likely to change rapidly or unpredictably.", synonyms: "Unstable, Explosive" },
+            { word: "Wily", meaning: "Clever in a deceptive way.", synonyms: "Cunning, Sly" }
+
+          
+            // ===== Group 17 =====
+            { word: "Acclaim", meaning: "To praise enthusiastically.", synonyms: "Praise, Applaud" },
+            { word: "Ascertain", meaning: "To find out with certainty.", synonyms: "Determine, Discover" },
+            { word: "Assertive", meaning: "Confidently self-assured.", synonyms: "Confident, Forceful" },
+            { word: "Bogus", meaning: "Not genuine; fake.", synonyms: "Fake, Fraudulent" },
+            { word: "Cataclysmic", meaning: "Causing sudden disaster or upheaval.", synonyms: "Disastrous, Devastating" },
+            { word: "Circumscribe", meaning: "To restrict or limit narrowly.", synonyms: "Limit, Restrict" },
+            { word: "Complementary", meaning: "Enhancing when combined.", synonyms: "Supplementary, Enhancing" },
+            { word: "Contentious", meaning: "Likely to cause disagreement.", synonyms: "Controversial, Disputed" },
+            { word: "Disingenuous", meaning: "Not sincere or straightforward.", synonyms: "Insincere, Deceptive" },
+            { word: "Divulge", meaning: "To reveal information.", synonyms: "Disclose, Reveal" },
+            { word: "Dogmatic", meaning: "Stubbornly asserting opinions.", synonyms: "Rigid, Opinionated" },
+            { word: "Fallacious", meaning: "Based on false reasoning.", synonyms: "False, Invalid" },
+            { word: "Foolhardy", meaning: "Recklessly bold.", synonyms: "Reckless, Rash" },
+            { word: "Hinder", meaning: "To obstruct progress.", synonyms: "Impede, Obstruct" },
+            { word: "Impair", meaning: "To weaken or damage.", synonyms: "Damage, Weaken" },
+            { word: "Impugn", meaning: "To challenge as false.", synonyms: "Dispute, Question" },
+            { word: "Incessant", meaning: "Continuing without interruption.", synonyms: "Constant, Unending" },
+            { word: "Inclined", meaning: "Disposed or willing.", synonyms: "Willing, Prone" },
+            { word: "Inveterate", meaning: "Long-established and habitual.", synonyms: "Chronic, Deep-rooted" },
+            { word: "Miserly", meaning: "Unwilling to spend money.", synonyms: "Stingy, Parsimonious" },
+            { word: "Quell", meaning: "To suppress or put an end to.", synonyms: "Suppress, Subdue" },
+            { word: "Repudiate", meaning: "To reject or disown.", synonyms: "Reject, Deny" },
+            { word: "Rescind", meaning: "To revoke or cancel officially.", synonyms: "Revoke, Annul" },
+            { word: "Scruple", meaning: "A moral doubt or hesitation.", synonyms: "Misgiving, Doubt" },
+            { word: "Stagnant", meaning: "Not moving or progressing.", synonyms: "Inactive, Still" },
+            { word: "Suppress", meaning: "To put down or restrain.", synonyms: "Restrain, Quell" },
+            { word: "Unorthodox", meaning: "Contrary to accepted beliefs.", synonyms: "Unconventional, Heretical" },
+            { word: "Vindictive", meaning: "Having a strong desire for revenge.", synonyms: "Vengeful, Spiteful" },
+            { word: "Volatile", meaning: "Likely to change rapidly or unpredictably.", synonyms: "Unstable, Explosive" },
+            { word: "Wily", meaning: "Clever in a deceptive way.", synonyms: "Cunning, Sly" }
+
+          
+            // ===== Group 18 =====
+            { word: "Abet", meaning: "To assist or encourage wrongdoing.", synonyms: "Aid, Encourage" },
+            { word: "Accessible", meaning: "Easy to understand or reach.", synonyms: "Understandable, Reachable" },
+            { word: "Acquisitive", meaning: "Eager to acquire possessions.", synonyms: "Greedy, Materialistic" },
+            { word: "Amalgamate", meaning: "To combine into one.", synonyms: "Merge, Unite" },
+            { word: "Attenuate", meaning: "To weaken or reduce.", synonyms: "Weaken, Diminish" },
+            { word: "Augment", meaning: "To increase or make larger.", synonyms: "Increase, Expand" },
+            { word: "Aversion", meaning: "A strong dislike.", synonyms: "Dislike, Antipathy" },
+            { word: "Blithe", meaning: "Showing cheerful indifference.", synonyms: "Carefree, Lighthearted" },
+            { word: "Contempt", meaning: "The feeling of regarding someone as inferior.", synonyms: "Disdain, Scorn" },
+            { word: "Dawdle", meaning: "To waste time; move slowly.", synonyms: "Linger, Loiter" },
+            { word: "Deflect", meaning: "To turn aside or divert.", synonyms: "Redirect, Divert" },
+            { word: "Discount", meaning: "To dismiss as unimportant.", synonyms: "Disregard, Minimize" },
+            { word: "Dissident", meaning: "One who disagrees with authority.", synonyms: "Rebel, Opponent" },
+            { word: "Efficacious", meaning: "Producing the desired effect.", synonyms: "Effective, Potent" },
+            { word: "Equitable", meaning: "Fair and impartial.", synonyms: "Fair, Just" },
+            { word: "Erratic", meaning: "Unpredictable and inconsistent.", synonyms: "Unpredictable, Irregular" },
+            { word: "Industrious", meaning: "Hard-working and diligent.", synonyms: "Diligent, Hardworking" },
+            { word: "Irksome", meaning: "Causing annoyance.", synonyms: "Annoying, Irritating" },
+            { word: "Modest", meaning: "Humble or moderate in amount.", synonyms: "Humble, Moderate" },
+            { word: "Pernicious", meaning: "Causing great harm gradually.", synonyms: "Harmful, Destructive" },
+            { word: "Resilient", meaning: "Able to recover quickly from difficulties.", synonyms: "Flexible, Hardy" },
+            { word: "Restrained", meaning: "Controlled or held back.", synonyms: "Controlled, Moderate" },
+            { word: "Reticent", meaning: "Reserved and reluctant to speak.", synonyms: "Reserved, Quiet" },
+            { word: "Rudimentary", meaning: "Basic or elementary.", synonyms: "Basic, Elementary" },
+            { word: "Savor", meaning: "To enjoy something fully.", synonyms: "Relish, Enjoy" },
+            { word: "Skeptical", meaning: "Doubtful or questioning.", synonyms: "Doubtful, Questioning" },
+            { word: "Sporadic", meaning: "Occurring at irregular intervals.", synonyms: "Irregular, Occasional" },
+            { word: "Steep", meaning: "Excessively high or difficult.", synonyms: "High, Severe" },
+            { word: "Temper", meaning: "To moderate or soften.", synonyms: "Moderate, Soften" },
+            { word: "Unwarranted", meaning: "Not justified or authorized.", synonyms: "Unjustified, Groundless" }
+
+          
+            // ===== Group 19 =====
+            { word: "Acolyte", meaning: "A devoted follower or assistant.", synonyms: "Follower, Disciple" },
+            { word: "Anoint", meaning: "To appoint or choose for a role.", synonyms: "Appoint, Designate" },
+            { word: "Base", meaning: "Lacking moral principles.", synonyms: "Immoral, Degraded" },
+            { word: "Coercion", meaning: "The use of force or threats.", synonyms: "Force, Compulsion" },
+            { word: "Coin", meaning: "To invent a new word or phrase.", synonyms: "Invent, Create" },
+            { word: "Cunning", meaning: "Skillful in deception.", synonyms: "Sly, Crafty" },
+            { word: "Discomfit", meaning: "To make uneasy or embarrassed.", synonyms: "Embarrass, Unsettle" },
+            { word: "Dissent", meaning: "Disagreement with an opinion or authority.", synonyms: "Disagree, Protest" },
+            { word: "Distill", meaning: "To extract the essential meaning.", synonyms: "Extract, Refine" },
+            { word: "Dubious", meaning: "Doubtful or uncertain.", synonyms: "Skeptical, Uncertain" },
+            { word: "Ebullient", meaning: "Overflowing with enthusiasm.", synonyms: "Exuberant, Joyful" },
+            { word: "Facetious", meaning: "Treating serious matters with inappropriate humor.", synonyms: "Flippant, Frivolous" },
+            { word: "Fallible", meaning: "Capable of making mistakes.", synonyms: "Imperfect, Erring" },
+            { word: "Florid", meaning: "Excessively elaborate or ornate.", synonyms: "Ornate, Overblown" },
+            { word: "Gawky", meaning: "Awkward or clumsy.", synonyms: "Clumsy, Awkward" },
+            { word: "Inveigle", meaning: "To persuade through flattery or deceit.", synonyms: "Coax, Entice" },
+            { word: "Jettison", meaning: "To discard something unnecessary.", synonyms: "Discard, Abandon" },
+            { word: "Mendacity", meaning: "Dishonesty or untruthfulness.", synonyms: "Dishonesty, Deceit" },
+            { word: "Munificent", meaning: "Very generous.", synonyms: "Generous, Lavish" },
+            { word: "Naive", meaning: "Lacking experience or judgment.", synonyms: "Innocent, Gullible" },
+            { word: "Noble", meaning: "Having high moral principles or ideals.", synonyms: "Honorable, Virtuous" },
+            { word: "Parochial", meaning: "Having a narrow or limited outlook.", synonyms: "Narrow-minded, Insular" },
+            { word: "Pedestrian", meaning: "Lacking imagination or excitement; ordinary.", synonyms: "Dull, Ordinary" },
+            { word: "Prevaricate", meaning: "To avoid the truth by being evasive.", synonyms: "Equivocate, Dodge" },
+            { word: "Prime", meaning: "Of primary importance or to prepare for action.", synonyms: "Prepare, Primary" },
+            { word: "Radical", meaning: "Far-reaching or advocating major change.", synonyms: "Extreme, Revolutionary" },
+            { word: "Recrudescent", meaning: "Breaking out again; reviving.", synonyms: "Resurgent, Renewed" },
+            { word: "Temporal", meaning: "Relating to time or worldly matters.", synonyms: "Worldly, Time-based" },
+            { word: "Transitory", meaning: "Not permanent; temporary.", synonyms: "Temporary, Fleeting" },
+            { word: "Viable", meaning: "Capable of working successfully.", synonyms: "Feasible, Workable" }
+
+          
+            // ===== Group 20 =====
+            { word: "Abreast", meaning: "Fully informed or up to date.", synonyms: "Informed, Updated" },
+            { word: "Confound", meaning: "To confuse or puzzle.", synonyms: "Perplex, Bewilder" },
+            { word: "Digression", meaning: "A departure from the main subject.", synonyms: "Aside, Deviation" },
+            { word: "Discrepancy", meaning: "A difference or inconsistency.", synonyms: "Difference, Inconsistency" },
+            { word: "Duplicitous", meaning: "Deceptive and two-faced.", synonyms: "Deceitful, Two-faced" },
+            { word: "Expedient", meaning: "Useful in the short term, often unfair.", synonyms: "Convenient, Pragmatic" },
+            { word: "Fabricate", meaning: "To invent falsely.", synonyms: "Invent, Falsify" },
+            { word: "Glum", meaning: "Looking or feeling gloomy.", synonyms: "Gloomy, Morose" },
+            { word: "Harbinger", meaning: "A sign or forerunner.", synonyms: "Forerunner, Omen" },
+            { word: "Intrinsic", meaning: "Belonging to the essential nature.", synonyms: "Inherent, Essential" },
+            { word: "Largesse", meaning: "Generosity in giving.", synonyms: "Generosity, Charity" },
+            { word: "Libertine", meaning: "A person without moral restraint.", synonyms: "Hedonist, Debauchee" },
+            { word: "Malfeasance", meaning: "Wrongdoing by a public official.", synonyms: "Misconduct, Corruption" },
+            { word: "Manifest", meaning: "Clear or obvious.", synonyms: "Evident, Obvious" },
+            { word: "Minute", meaning: "Extremely small.", synonyms: "Tiny, Minuscule" },
+            { word: "Modish", meaning: "Fashionable.", synonyms: "Stylish, Trendy" },
+            { word: "Nascent", meaning: "Beginning to exist or develop.", synonyms: "Emerging, Developing" },
+            { word: "Perennial", meaning: "Lasting or recurring over time.", synonyms: "Enduring, Persistent" },
+            { word: "Pious", meaning: "Deeply religious or morally righteous.", synonyms: "Devout, Sanctimonious" },
+            { word: "Providential", meaning: "Occurring at a fortunate time.", synonyms: "Fortunate, Timely" },
+
+          
+            // ===== Group 21 =====
+            { word: "Abject", meaning: "Extremely bad or miserable.", synonyms: "Wretched, Miserable" },
+            { word: "Amicable", meaning: "Friendly and peaceable.", synonyms: "Friendly, Cordial" },
+            { word: "Animosity", meaning: "Strong hostility or resentment.", synonyms: "Hostility, Hatred" },
+            { word: "Aver", meaning: "To assert confidently.", synonyms: "Assert, Declare" },
+            { word: "Barrage", meaning: "An overwhelming outpouring.", synonyms: "Onslaught, Flood" },
+            { word: "Cathartic", meaning: "Providing emotional release.", synonyms: "Therapeutic, Purging" },
+            { word: "Decipher", meaning: "To interpret something unclear.", synonyms: "Decode, Interpret" },
+            { word: "Delusion", meaning: "A false belief.", synonyms: "Illusion, Misbelief" },
+            { word: "Dispense", meaning: "To distribute or do without.", synonyms: "Distribute, Provide" },
+            { word: "Eloquent", meaning: "Fluent and persuasive in speech.", synonyms: "Articulate, Expressive" },
+            { word: "Enthrall", meaning: "To captivate or charm.", synonyms: "Captivate, Enchant" },
+            { word: "Eradicate", meaning: "To eliminate completely.", synonyms: "Destroy, Eliminate" },
+            { word: "Fledgling", meaning: "New or inexperienced.", synonyms: "Beginner, Novice" },
+            { word: "Fortitude", meaning: "Strength in facing adversity.", synonyms: "Courage, Resolve" },
+            { word: "Fortuitous", meaning: "Happening by chance, often luckily.", synonyms: "Lucky, Accidental" },
+            { word: "Goad", meaning: "To provoke or urge.", synonyms: "Prod, Incite" },
+            { word: "Imminent", meaning: "About to happen.", synonyms: "Impending, Near" },
+            { word: "Incontrovertible", meaning: "Impossible to deny.", synonyms: "Indisputable, Certain" },
+            { word: "Itinerant", meaning: "Traveling from place to place.", synonyms: "Wandering, Nomadic" },
+            { word: "Magnanimous", meaning: "Very generous or forgiving.", synonyms: "Generous, Noble" },
+          
+            // ===== Group 22 =====
+            { word: "Arresting", meaning: "Striking or attracting attention.", synonyms: "Striking, Notable" },
+            { word: "Chastise", meaning: "To scold or criticize harshly.", synonyms: "Rebuke, Reprimand" },
+            { word: "Cumbersome", meaning: "Large, heavy, or difficult to manage.", synonyms: "Unwieldy, Bulky" },
+            { word: "Economy", meaning: "Efficient use of resources or words.", synonyms: "Frugality, Efficiency" },
+            { word: "Elementary", meaning: "Basic or fundamental.", synonyms: "Basic, Fundamental" },
+            { word: "Embellish", meaning: "To decorate or add details.", synonyms: "Adorn, Enhance" },
+            { word: "Euphoric", meaning: "Extremely happy or excited.", synonyms: "Elated, Joyful" },
+            { word: "Exonerate", meaning: "To free from blame.", synonyms: "Absolve, Clear" },
+            { word: "Extrapolate", meaning: "To predict based on known data.", synonyms: "Infer, Predict" },
+            { word: "Falter", meaning: "To hesitate or weaken.", synonyms: "Hesitate, Waver" },
+            { word: "Fervent", meaning: "Showing intense passion or zeal.", synonyms: "Zealous, Ardent" },
+            { word: "Foment", meaning: "To stir up trouble or rebellion.", synonyms: "Incite, Provoke" },
+            { word: "Gaffe", meaning: "An embarrassing mistake.", synonyms: "Blunder, Faux pas" },
+            { word: "Heterodox", meaning: "Departing from accepted beliefs.", synonyms: "Unorthodox, Heretical" },
+            { word: "Histrionic", meaning: "Overly dramatic.", synonyms: "Dramatic, Theatrical" },
+            { word: "Implicit", meaning: "Implied rather than stated.", synonyms: "Implied, Unspoken" },
+            { word: "Inviolate", meaning: "Free from violation.", synonyms: "Untouched, Sacred" },
+            { word: "Liability", meaning: "A disadvantage or risk.", synonyms: "Burden, Handicap" },
+            { word: "Obstinate", meaning: "Stubbornly refusing to change.", synonyms: "Stubborn, Unyielding" },
+            { word: "Painstaking", meaning: "Done with great care.", synonyms: "Meticulous, Thorough" },
+          
+            // ===== Group 23 =====
+            { word: "Allusive", meaning: "Indirectly suggestive.", synonyms: "Indirect, Suggestive" },
+            { word: "Astute", meaning: "Quick to understand and judge.", synonyms: "Shrewd, Perceptive" },
+            { word: "Commence", meaning: "To begin.", synonyms: "Begin, Start" },
+            { word: "Convalescent", meaning: "Recovering from illness.", synonyms: "Recovering, Healing" },
+            { word: "Curb", meaning: "To restrain or control.", synonyms: "Restrain, Limit" },
+            { word: "Decry", meaning: "To publicly condemn.", synonyms: "Condemn, Denounce" },
+            { word: "Duress", meaning: "Compulsion by force or threat.", synonyms: "Coercion, Pressure" },
+            { word: "Evoke", meaning: "To bring to mind.", synonyms: "Elicit, Summon" },
+            { word: "Fawn", meaning: "To flatter excessively.", synonyms: "Flatter, Grovel" },
+            { word: "Fret", meaning: "To worry excessively.", synonyms: "Worry, Agonize" },
+            { word: "Glib", meaning: "Fluent but insincere.", synonyms: "Smooth, Shallow" },
+            { word: "Headstrong", meaning: "Stubbornly self-willed.", synonyms: "Stubborn, Willful" },
+            { word: "Intermittent", meaning: "Occurring at irregular intervals.", synonyms: "Occasional, Sporadic" },
+            { word: "Ire", meaning: "Anger.", synonyms: "Anger, Rage" },
+            { word: "Languid", meaning: "Lacking energy or vitality.", synonyms: "Sluggish, Weak" },
+            { word: "Lull", meaning: "A temporary pause.", synonyms: "Pause, Break" },
+            { word: "Mettlesome", meaning: "Spirited and courageous.", synonyms: "Brave, Spirited" },
+            { word: "Mollify", meaning: "To calm or soothe.", synonyms: "Appease, Pacify" },
+            { word: "Neutralize", meaning: "To counteract.", synonyms: "Cancel, Offset" },
+            { word: "Nonplussed", meaning: "Confused or unsure.", synonyms: "Perplexed, Baffled" },
+          
+            // ===== Group 24 =====
+            { word: "Assail", meaning: "To attack physically or verbally.", synonyms: "Attack, Assault" },
+            { word: "Benevolent", meaning: "Kind and well-meaning.", synonyms: "Kind, Charitable" },
+            { word: "Berate", meaning: "To scold harshly.", synonyms: "Reprimand, Scold" },
+            { word: "Buoyant", meaning: "Cheerful and optimistic.", synonyms: "Cheerful, Lighthearted" },
+            { word: "Buttress", meaning: "To support or strengthen.", synonyms: "Support, Reinforce" },
+            { word: "Condone", meaning: "To overlook or allow behavior.", synonyms: "Approve, Tolerate" },
+            { word: "Contravene", meaning: "To violate a rule or law.", synonyms: "Violate, Breach" },
+            { word: "Denounce", meaning: "To publicly condemn.", synonyms: "Condemn, Decry" },
+            { word: "Despotic", meaning: "Having absolute power; tyrannical.", synonyms: "Tyrannical, Authoritarian" },
+            { word: "Deviate", meaning: "To depart from a norm.", synonyms: "Stray, Diverge" },
+            { word: "Disinterested", meaning: "Unbiased; impartial.", synonyms: "Impartial, Neutral" },
+            { word: "Escalate", meaning: "To increase in intensity.", synonyms: "Intensify, Rise" },
+            { word: "Exorcize", meaning: "To drive out or expel.", synonyms: "Expel, Purge" },
+            { word: "Finicky", meaning: "Hard to please; fussy.", synonyms: "Fussy, Particular" },
+            { word: "Foil", meaning: "To prevent success.", synonyms: "Prevent, Thwart" },
+            { word: "Intertwined", meaning: "Closely connected or twisted together.", synonyms: "Entwined, Interwoven" },
+            { word: "Inundate", meaning: "To overwhelm with excess.", synonyms: "Flood, Overwhelm" },
+            { word: "Ironclad", meaning: "Impossible to break or change.", synonyms: "Unbreakable, Firm" },
+            { word: "Jeopardize", meaning: "To put at risk.", synonyms: "Endanger, Threaten" },
+            { word: "Mercurial", meaning: "Unpredictable in mood.", synonyms: "Volatile, Fickle" },
+          
+            // ===== Group 25 =====
+            { word: "Adept", meaning: "Highly skilled.", synonyms: "Skilled, Proficient" },
+            { word: "Adverse", meaning: "Unfavorable or harmful.", synonyms: "Unfavorable, Harmful" },
+            { word: "Appropriate", meaning: "Suitable or fitting for a situation.", synonyms: "Suitable, Proper" },
+            { word: "Archetype", meaning: "A perfect example or model.", synonyms: "Model, Prototype" },
+            { word: "Articulate", meaning: "Able to express ideas clearly.", synonyms: "Eloquent, Expressive" },
+            { word: "Auspicious", meaning: "Favorable or promising.", synonyms: "Promising, Favorable" },
+            { word: "Bereft", meaning: "Lacking or deprived.", synonyms: "Deprived, Lacking" },
+            { word: "Captious", meaning: "Finding trivial faults.", synonyms: "Faultfinding, Petty" },
+            { word: "Conclusive", meaning: "Leaving no doubt.", synonyms: "Decisive, Definitive" },
+            { word: "Conspire", meaning: "To plan secretly.", synonyms: "Plot, Scheme" },
+            { word: "Delineate", meaning: "To describe precisely.", synonyms: "Outline, Describe" },
+            { word: "Disentangle", meaning: "To free from confusion.", synonyms: "Untangle, Clarify" },
+            { word: "Exhort", meaning: "To strongly encourage.", synonyms: "Urge, Encourage" },
+            { word: "Frailty", meaning: "Weakness or fragility.", synonyms: "Weakness, Fragility" },
+            { word: "Grievance", meaning: "A complaint or wrong.", synonyms: "Complaint, Resentment" },
+            { word: "Harangue", meaning: "A long, angry speech.", synonyms: "Rant, Tirade" },
+            { word: "Ploy", meaning: "A strategic maneuver.", synonyms: "Tactic, Strategy" },
+            { word: "Poise", meaning: "Graceful balance or composure.", synonyms: "Composure, Balance" },
+            { word: "Pomposity", meaning: "Excessive self-importance.", synonyms: "Arrogance, Pretension" },
+            { word: "Proxy", meaning: "A substitute acting on behalf of another.", synonyms: "Substitute, Representative" },
+          
+            // ===== Group 26 =====
+            { word: "Apprehension", meaning: "Anxiety or fear about something future.", synonyms: "Anxiety, Dread" },
+            { word: "Ardent", meaning: "Showing strong enthusiasm or passion.", synonyms: "Passionate, Fervent" },
+            { word: "Axiomatic", meaning: "Self-evident or unquestionable.", synonyms: "Self-evident, Obvious" },
+            { word: "Cease", meaning: "To stop or come to an end.", synonyms: "Stop, End" },
+            { word: "Conducive", meaning: "Helping to bring about a desired result.", synonyms: "Favorable, Helpful" },
+            { word: "Corporeal", meaning: "Relating to physical body.", synonyms: "Physical, Bodily" },
+            { word: "Doctrinaire", meaning: "Rigidly attached to theory rather than practicality.", synonyms: "Dogmatic, Rigid" },
+            { word: "Eclectic", meaning: "Deriving ideas from a wide range of sources.", synonyms: "Diverse, Varied" },
+            { word: "Equanimity", meaning: "Mental calmness under stress.", synonyms: "Calmness, Composure" },
+            { word: "Exorbitant", meaning: "Excessively high or unreasonable.", synonyms: "Excessive, Extreme" },
+            { word: "Fickle", meaning: "Likely to change opinions frequently.", synonyms: "Inconstant, Unreliable" },
+            { word: "Figurative", meaning: "Symbolic rather than literal.", synonyms: "Symbolic, Metaphorical" },
+            { word: "Flustered", meaning: "Agitated or confused.", synonyms: "Agitated, Confused" },
+            { word: "Gullible", meaning: "Easily deceived.", synonyms: "Credulous, Naive" },
+            { word: "Idiosyncratic", meaning: "Peculiar to an individual.", synonyms: "Peculiar, Unique" },
+            { word: "Incidental", meaning: "Secondary or not essential.", synonyms: "Secondary, Minor" },
+            { word: "Ingrained", meaning: "Deeply rooted and hard to change.", synonyms: "Embedded, Deep-rooted" },
+            { word: "Insolent", meaning: "Rudely disrespectful.", synonyms: "Rude, Impudent" },
+            { word: "Lampoon", meaning: "To satirize or mock.", synonyms: "Mock, Satirize" },
+            { word: "Lavish", meaning: "Very generous or excessive.", synonyms: "Extravagant, Generous" },
+          
+            // ===== Group 27 =====
+            { word: "Antagonize", meaning: "To provoke hostility.", synonyms: "Provoke, Irritate" },
+            { word: "Barren", meaning: "Unproductive or infertile.", synonyms: "Sterile, Unproductive" },
+            { word: "Bombastic", meaning: "Using inflated language with little meaning.", synonyms: "Pompous, Grandiose" },
+            { word: "Cajole", meaning: "To persuade using flattery.", synonyms: "Coax, Wheedle" },
+            { word: "Chary", meaning: "Cautiously reluctant.", synonyms: "Wary, Hesitant" },
+            { word: "Curmudgeon", meaning: "An ill-tempered, stubborn person.", synonyms: "Grump, Miser" },
+            { word: "Dirge", meaning: "A mournful song.", synonyms: "Lament, Elegy" },
+            { word: "Estimable", meaning: "Worthy of respect.", synonyms: "Admirable, Respectable" },
+            { word: "Euphemism", meaning: "A mild term replacing a harsh one.", synonyms: "Substitute, Softener" },
+            { word: "Excoriate", meaning: "To criticize severely.", synonyms: "Denounce, Condemn" },
+            { word: "Exigent", meaning: "Requiring immediate action.", synonyms: "Urgent, Pressing" },
+            { word: "Haughty", meaning: "Arrogantly superior.", synonyms: "Arrogant, Proud" },
+            { word: "Imperturbable", meaning: "Not easily disturbed.", synonyms: "Calm, Unflappable" },
+            { word: "Implacable", meaning: "Unable to be appeased.", synonyms: "Unyielding, Relentless" },
+            { word: "Lambaste", meaning: "To criticize harshly.", synonyms: "Berate, Scold" },
+            { word: "Miscreant", meaning: "A person who behaves badly.", synonyms: "Villain, Wrongdoer" },
+            { word: "Peccadillo", meaning: "A minor fault or offense.", synonyms: "Trifle, Minor offense" },
+            { word: "Philistine", meaning: "A person lacking culture.", synonyms: "Uncultured, Crude" },
+            { word: "Relegate", meaning: "To assign to a lower position.", synonyms: "Downgrade, Demote" },
+            { word: "Repugnant", meaning: "Extremely offensive.", synonyms: "Disgusting, Offensive" },
+          
+            // ===== Group 28 =====
+            { word: "Abeyance", meaning: "Temporary suppression or suspension.", synonyms: "Suspension, Hiatus" },
+            { word: "Abstract", meaning: "Existing in thought rather than concrete form.", synonyms: "Theoretical, Conceptual" },
+            { word: "Affront", meaning: "An open insult or offense.", synonyms: "Insult, Slight" },
+            { word: "Agitate", meaning: "To disturb or excite emotionally.", synonyms: "Disturb, Upset" },
+            { word: "August", meaning: "Inspiring reverence or respect.", synonyms: "Majestic, Noble" },
+            { word: "Burnish", meaning: "To polish or improve.", synonyms: "Polish, Enhance" },
+            { word: "Coy", meaning: "Shy in a playful or affected way.", synonyms: "Shy, Bashful" },
+            { word: "Deprecate", meaning: "To express disapproval of.", synonyms: "Disapprove, Belittle" },
+            { word: "Disdain", meaning: "A feeling of contempt.", synonyms: "Contempt, Scorn" },
+            { word: "Disperse", meaning: "To scatter widely.", synonyms: "Scatter, Diffuse" },
+            { word: "Distend", meaning: "To swell or expand.", synonyms: "Expand, Swell" },
+            { word: "Endemic", meaning: "Native or restricted to a specific area.", synonyms: "Native, Localized" },
+            { word: "Enmity", meaning: "Deep hostility.", synonyms: "Hostility, Hatred" },
+            { word: "Gauche", meaning: "Awkward in social situations.", synonyms: "Awkward, Clumsy" },
+            { word: "Hysterical", meaning: "Wildly emotional or exaggerated.", synonyms: "Frantic, Overemotional" },
+            { word: "Impudent", meaning: "Disrespectfully bold.", synonyms: "Insolent, Rude" },
+            { word: "Inchoate", meaning: "Just beginning and not fully formed.", synonyms: "Formative, Rudimentary" },
+            { word: "Penchant", meaning: "A strong liking or inclination.", synonyms: "Fondness, Inclination" },
+            { word: "Quandary", meaning: "A difficult dilemma.", synonyms: "Dilemma, Predicament" },
+            { word: "Quash", meaning: "To suppress or reject decisively.", synonyms: "Suppress, Crush" },
+          
+            // ===== Group 29 =====
+            { word: "Abscond", meaning: "To leave secretly to avoid consequences.", synonyms: "Flee, Escape" },
+            { word: "Apogee", meaning: "The highest point.", synonyms: "Peak, Zenith" },
+            { word: "Aspersion", meaning: "A damaging remark or accusation.", synonyms: "Slander, Insult" },
+            { word: "Chagrin", meaning: "Distress or embarrassment.", synonyms: "Embarrassment, Regret" },
+            { word: "Collude", meaning: "To secretly cooperate for wrongdoing.", synonyms: "Conspire, Plot" },
+            { word: "Commiserate", meaning: "To express sympathy.", synonyms: "Sympathize, Console" },
+            { word: "Conflagration", meaning: "A large destructive fire.", synonyms: "Inferno, Blaze" },
+            { word: "Conviction", meaning: "A firmly held belief.", synonyms: "Belief, Certainty" },
+            { word: "Depose", meaning: "To remove from power.", synonyms: "Overthrow, Oust" },
+            { word: "Detente", meaning: "Relaxation of strained relations.", synonyms: "Truce, Thaw" },
+            { word: "Dowdy", meaning: "Lacking style.", synonyms: "Unfashionable, Drab" },
+            { word: "Ennui", meaning: "A feeling of weariness or boredom.", synonyms: "Boredom, Tedium" },
+            { word: "Fraught", meaning: "Filled with tension.", synonyms: "Tense, Stressful" },
+            { word: "Fulcrum", meaning: "The central point of leverage.", synonyms: "Pivot, Center" },
+            { word: "Imbroglio", meaning: "A complicated or confusing situation.", synonyms: "Mess, Tangle" },
+            { word: "Languish", meaning: "To weaken or decline.", synonyms: "Decline, Fade" },
+            { word: "Nadir", meaning: "The lowest point.", synonyms: "Low point, Bottom" },
+            { word: "Nimble", meaning: "Quick and light in movement.", synonyms: "Agile, Quick" },
+            { word: "Ominous", meaning: "Suggesting something bad will happen.", synonyms: "Threatening, Foreboding" },
+            { word: "Outlandish", meaning: "Bizarre or strange.", synonyms: "Bizarre, Strange" },
+          
+            // ===== Group 30 =====
+            { word: "Aberrant", meaning: "Deviating from what is normal.", synonyms: "Abnormal, Deviant" },
+            { word: "Abide", meaning: "To tolerate or accept.", synonyms: "Tolerate, Endure" },
+            { word: "Bravado", meaning: "A show of boldness meant to impress.", synonyms: "Bluster, Swagger" },
+            { word: "Callow", meaning: "Young and inexperienced.", synonyms: "Immature, Inexperienced" },
+            { word: "Capitulate", meaning: "To surrender or give up resistance.", synonyms: "Surrender, Yield" },
+            { word: "Cogitate", meaning: "To think deeply.", synonyms: "Ponder, Reflect" },
+            { word: "Deportment", meaning: "Behavior or manners.", synonyms: "Conduct, Bearing" },
+            { word: "Extemporize", meaning: "To improvise without preparation.", synonyms: "Improvise, Ad-lib" },
+            { word: "Factious", meaning: "Causing division or disagreement.", synonyms: "Divisive, Contentious" },
+            { word: "Fallow", meaning: "Inactive or unproductive.", synonyms: "Idle, Dormant" },
+            { word: "Feint", meaning: "A deceptive movement.", synonyms: "Ruse, Trick" },
+            { word: "Flagrant", meaning: "Blatantly offensive.", synonyms: "Blatant, Outrageous" },
+            { word: "Gratuitous", meaning: "Unnecessary or unprovoked.", synonyms: "Unwarranted, Needless" },
+            { word: "Grovel", meaning: "To behave submissively.", synonyms: "Beg, Cower" },
+            { word: "Indecorous", meaning: "Not in good taste.", synonyms: "Improper, Unseemly" },
+            { word: "Intrigue", meaning: "To arouse curiosity or interest.", synonyms: "Fascinate, Entice" },
+            { word: "Nominal", meaning: "Existing in name only.", synonyms: "Insignificant, Minimal" },
+            { word: "Obdurate", meaning: "Stubbornly resistant.", synonyms: "Stubborn, Inflexible" },
+            { word: "Obstreperous", meaning: "Noisy and difficult to control.", synonyms: "Unruly, Boisterous" },
+            { word: "Odious", meaning: "Extremely offensive.", synonyms: "Repulsive, Detestable" },
+          
+            // ===== Group 31 =====
+            { word: "Abrogate", meaning: "To officially repeal or abolish.", synonyms: "Repeal, Abolish" },
+            { word: "Aghast", meaning: "Filled with shock or horror.", synonyms: "Horrified, Shocked" },
+            { word: "Apprise", meaning: "To inform or notify.", synonyms: "Inform, Notify" },
+            { word: "Beguile", meaning: "To charm or deceive.", synonyms: "Charm, Deceive" },
+            { word: "Boon", meaning: "A benefit or blessing.", synonyms: "Benefit, Blessing" },
+            { word: "Callous", meaning: "Emotionally insensitive.", synonyms: "Insensitive, Hardhearted" },
+            { word: "Coddle", meaning: "To pamper excessively.", synonyms: "Pamper, Spoil" },
+            { word: "Crescendo", meaning: "A gradual increase to a peak.", synonyms: "Climax, Peak" },
+            { word: "Extenuating", meaning: "Making a fault seem less serious.", synonyms: "Mitigating, Justifying" },
+            { word: "Frenetic", meaning: "Fast-paced and frantic.", synonyms: "Frantic, Wild" },
+            { word: "Fringe", meaning: "Unconventional or extreme.", synonyms: "Unconventional, Radical" },
+            { word: "Hapless", meaning: "Unlucky or unfortunate.", synonyms: "Unfortunate, Helpless" },
+            { word: "Immaculate", meaning: "Perfectly clean or flawless.", synonyms: "Spotless, Flawless" },
+            { word: "Obfuscate", meaning: "To deliberately confuse.", synonyms: "Confuse, Obscure" },
+            { word: "Ossify", meaning: "To become rigid or inflexible.", synonyms: "Harden, Solidify" },
+            { word: "Pastiche", meaning: "A work combining multiple styles.", synonyms: "Imitation, Medley" },
+            { word: "Perspicacious", meaning: "Highly perceptive.", synonyms: "Insightful, Astute" },
+            { word: "Ponderous", meaning: "Heavy or dull.", synonyms: "Heavy, Tedious" },
+            { word: "Recluse", meaning: "A person living in isolation.", synonyms: "Hermit, Loner" },
+            { word: "Retaliate", meaning: "To strike back.", synonyms: "Revenge, Counterattack" },
+          
+            // ===== Group 32 =====
+            { word: "Abstruse", meaning: "Difficult to understand.", synonyms: "Obscure, Complex" },
+            { word: "Auxiliary", meaning: "Providing additional help.", synonyms: "Supplementary, Supporting" },
+            { word: "Caricature", meaning: "An exaggerated depiction.", synonyms: "Parody, Exaggeration" },
+            { word: "Depravity", meaning: "Moral corruption.", synonyms: "Corruption, Wickedness" },
+            { word: "Dilettante", meaning: "An amateur with superficial interest.", synonyms: "Amateur, Dabbler" },
+            { word: "Effrontery", meaning: "Shameless boldness.", synonyms: "Audacity, Insolence" },
+            { word: "Encroach", meaning: "To intrude gradually.", synonyms: "Intrude, Trespass" },
+            { word: "Endow", meaning: "To provide with a quality or asset.", synonyms: "Provide, Bestow" },
+            { word: "Entreat", meaning: "To beg earnestly.", synonyms: "Beg, Plead" },
+            { word: "Gregarious", meaning: "Sociable and outgoing.", synonyms: "Sociable, Friendly" },
+            { word: "Indictment", meaning: "A formal accusation.", synonyms: "Charge, Accusation" },
+            { word: "Indignant", meaning: "Angry at injustice.", synonyms: "Offended, Outraged" },
+            { word: "Ineluctable", meaning: "Impossible to avoid.", synonyms: "Inevitable, Unavoidable" },
+            { word: "Inquisitive", meaning: "Curious or eager to learn.", synonyms: "Curious, Inquiring" },
+            { word: "Latitude", meaning: "Freedom of action.", synonyms: "Freedom, Scope" },
+            { word: "Levity", meaning: "Lightness or humor.", synonyms: "Lightheartedness, Humor" },
+            { word: "Malevolent", meaning: "Wishing harm to others.", synonyms: "Malicious, Hostile" },
+            { word: "Mediate", meaning: "To intervene to resolve conflict.", synonyms: "Intervene, Negotiate" },
+            { word: "Occlude", meaning: "To block or obstruct.", synonyms: "Block, Obstruct" },
+            { word: "Pacify", meaning: "To calm or bring peace.", synonyms: "Calm, Appease" }
+          ];
+        let words = []; 
+        let currentFocusIndex = -1;
+        const gridEl = document.getElementById('word-grid');
+        const meaningEl = document.getElementById('meaning-display');
+        const fileInput = document.getElementById('file-upload');
+        const toastEl = document.getElementById('toast');
+
+        const countTotalEl = document.getElementById('count-total');
+        const countKnownEl = document.getElementById('count-known');
+        const countUnknownEl = document.getElementById('count-unknown');
+        const countRemainingEl = document.getElementById('count-remaining');
+
+        function init() {
+            words = defaultWordData.map((item, index) => ({
+                id: index, word: item.word, meaning: item.meaning, synonyms: item.synonyms || "", status: 'none'
+            }));
+            currentFocusIndex = 0;
+            renderGrid();
+            updateStats();
+        }
+
+        function renderGrid() {
+            gridEl.innerHTML = '';
+            words.forEach((item, index) => {
+                const box = document.createElement('div');
+                box.className = `word-box ${item.status}`;
+                box.textContent = item.word;
+                box.dataset.index = index;
+                if (index === currentFocusIndex) box.classList.add('active-focus');
+                box.addEventListener('click', () => { currentFocusIndex = index; renderGrid(); });
+                gridEl.appendChild(box);
+            });
+        }
+
+        function reshuffleWords() {
+            for (let i = words.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [words[i], words[j]] = [words[j], words[i]];
+            }
+            currentFocusIndex = 0;
+            renderGrid();
+            clearMeaning();
+            showToast("List reshuffled.");
+        }
+
+        function sortUnknownFirst() {
+            const sortedWords = [...words].map((w, i) => ({ ...w, originalIndex: i }));
+            sortedWords.sort((a, b) => {
+                const getStatusWeight = (status) => {
+                    if (status === 'unknown') return 0;
+                    if (status === 'none') return 1;
+                    if (status === 'known') return 2;
+                    return 1;
+                };
+                const weightA = getStatusWeight(a.status);
+                const weightB = getStatusWeight(b.status);
+                if (weightA !== weightB) return weightA - weightB;
+                return a.originalIndex - b.originalIndex;
+            });
+            words = sortedWords.map((w, i) => ({ ...w, id: i }));
+            currentFocusIndex = 0;
+            renderGrid();
+            showToast("Sorted: Unknown first.");
+        }
+
+        function updateStats() {
+            const total = words.length;
+            const known = words.filter(w => w.status === 'known').length;
+            const unknown = words.filter(w => w.status === 'unknown').length;
+            const remaining = total - known - unknown;
+            countTotalEl.textContent = total;
+            countKnownEl.textContent = known;
+            countUnknownEl.textContent = unknown;
+            countRemainingEl.textContent = remaining;
+        }
+
+        function updateWordStatus(status) {
+            if (currentFocusIndex === -1 || currentFocusIndex >= words.length) return;
+            words[currentFocusIndex].status = status;
+            const boxes = document.querySelectorAll('.word-box');
+            const box = boxes[currentFocusIndex];
+            box.classList.remove('known', 'unknown');
+            if (status !== 'none') box.classList.add(status);
+            updateStats();
+        }
+
+        function toggleMeaning() {
+            if (currentFocusIndex === -1 || currentFocusIndex >= words.length) return;
+            const currentWord = words[currentFocusIndex];
+            if (meaningEl.dataset.currentId === String(currentWord.id) && meaningEl.innerHTML !== "") {
+                clearMeaning();
+            } else {
+                meaningEl.dataset.currentId = currentWord.id;
+                meaningEl.innerHTML = `<strong>${currentWord.word}</strong><br><br>${currentWord.meaning}`;
+            }
+        }
+
+        function clearMeaning() { meaningEl.textContent = ""; meaningEl.removeAttribute('data-current-id'); }
+        function resetToDefault() { if(confirm("Reset to default list?")) { init(); showToast("Reset."); } }
+        function showToast(msg) { toastEl.textContent = msg; toastEl.classList.add('show'); setTimeout(() => toastEl.classList.remove('show'), 3000); }
+
+        // ==========================================
+        // ADVANCED PARSING (PDF / WORD / EXCEL)
+        // ==========================================
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            showToast("Processing file...");
+            
+            try {
+                let newWords = [];
+                if (file.name.match(/\.(xlsx|xls|csv)$/)) {
+                    newWords = await parseExcel(file);
+                } else if (file.name.match(/\.(doc|docx)$/)) {
+                    newWords = await parseWord(file);
+                } else if (file.name.match(/\.pdf$/)) {
+                    newWords = await parsePDF(file);
+                } else {
+                    showToast("Unsupported format.");
+                    return;
+                }
+
+                if (newWords.length > 0) {
+                    loadNewData(newWords);
+                    showToast(`Loaded ${newWords.length} words.`);
+                } else {
+                    showToast("No valid words found.");
+                }
+            } catch (err) {
+                console.error(err);
+                showToast("Error reading file.");
+            }
+            fileInput.value = '';
+        });
+
+        function parseExcel(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+                    const parsed = [];
+                    let startIndex = 0;
+                    if (jsonData.length > 0 && typeof jsonData[0][1] === 'string' && jsonData[0][1].toLowerCase().includes('meaning')) startIndex = 1;
+                    for (let i = startIndex; i < jsonData.length; i++) {
+                        const row = jsonData[i];
+                        if (row && row.length > 0) {
+                            parsed.push({ word: row[0] || "Unknown", meaning: row[1] || "", synonyms: row[2] || "" });
+                        }
+                    }
+                    resolve(parsed);
+                };
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        function parseWord(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    mammoth.extractRawText({ arrayBuffer: e.target.result })
+                        .then(result => resolve(parseTextLines(result.value)))
+                        .catch(err => reject(err));
+                };
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        async function parsePDF(file) {
+            const typedarray = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument(typedarray).promise;
+            let fullText = "";
+            
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                
+                // Heuristic: Identify the boundary between Left Column (Words) and Right Column (Meanings)
+                // We find the x-coordinate where the right column starts.
+                let items = textContent.items;
+                if (items.length === 0) continue;
+
+                // 1. Group text by Y-coordinates (roughly line by line)
+                // PDF coordinates: x (horizontal), y (vertical, inverted)
+                const lineMap = {};
+                items.forEach(item => {
+                    // Round Y to handle slight variations
+                    const y = Math.round(item.transform[5]); 
+                    if (!lineMap[y]) lineMap[y] = [];
+                    lineMap[y].push(item);
+                });
+
+                // 2. Sort Y coordinates from top to bottom
+                const sortedY = Object.keys(lineMap).sort((a, b) => b - a);
+
+                // 3. Determine column split point (X-axis)
+                // We assume the first line gives a hint: Word is left, Meaning is right.
+                const firstLineItems = lineMap[sortedY[0]];
+                // Split roughly in the middle of the width of the page, or use distinct gaps
+                // Let's use the first gap between items in the first line
+                let splitX = 300; // Default fallback
+                if (firstLineItems.length >= 2) {
+                    // Sort first line items by X position
+                    firstLineItems.sort((a, b) => a.transform[4] - b.transform[4]);
+                    // Assume gap between word 1 and word 2 is the column split
+                    splitX = (firstLineItems[0].transform[4] + firstLineItems[firstLineItems.length - 1].transform[4]) / 2;
+                }
+
+                // 4. Process each line
+                sortedY.forEach(y => {
+                    const lineItems = lineMap[y];
+                    lineItems.sort((a, b) => a.transform[4] - b.transform[4]); // Sort left to right
+
+                    let wordPart = "";
+                    let meaningPart = "";
+
+                    // Heuristic: If items are far apart, it's 2 columns. If close, it's 1 long line.
+                    for (let i = 0; i < lineItems.length; i++) {
+                        const item = lineItems[i];
+                        const nextItem = lineItems[i+1];
+
+                        // Check gap to next item
+                        const hasGap = nextItem && (nextItem.transform[4] - (item.transform[4] + item.width)) > 30;
+
+                        if (i === 0) {
+                            wordPart = item.str;
+                        } else if (item.transform[4] > splitX && i > 0) {
+                            // If we are past the split point, this belongs to Meaning
+                            meaningPart += item.str + " ";
+                        } else if (hasGap) {
+                            // If we are still left of split but there is a huge gap (e.g. number list), treat as start of meaning
+                            meaningPart += item.str + " ";
+                        } else {
+                            // Continuation of word
+                            wordPart += item.str + " ";
+                        }
+                    }
+
+                    if (wordPart && meaningPart) {
+                         // Add temporary object to fullText string for processing later
+                         // We use a unique separator that won't appear in text
+                         fullText += `${wordPart.trim()} ||| ${meaningPart.trim()}\n`;
+                    } else if (wordPart) {
+                        // Single column case or parsing error, add to meaning as fallback
+                         fullText += `${wordPart.trim()} ||| \n`;
+                    }
+                });
+            }
+            
+            // Now parse our constructed text
+            return parseTextLines(fullText, " ||| ");
+        }
+
+        function parseTextLines(text, separator = /\s-\s|\s\|\s|\t/) {
+            const lines = text.split(/\r?\n/);
+            const parsed = [];
+            lines.forEach(line => {
+                line = line.trim();
+                if(!line) return;
+                // Split by separator or our special PDF separator
+                const parts = line.split(separator);
+                
+                // If we have 2 parts (Word | Meaning), use them. 
+                // If we have more, maybe Word | Meaning | Synonym.
+                if (parts.length >= 2) {
+                    parsed.push({
+                        word: parts[0].trim(),
+                        meaning: parts[1].trim(),
+                        synonyms: parts[2] ? parts[2].trim() : ""
+                    });
+                }
+            });
+            return parsed;
+        }
+
+        function loadNewData(newItems) {
+            words = newItems.map((item, index) => ({
+                id: index, word: item.word, meaning: item.meaning, synonyms: item.synonyms, status: 'none'
+            }));
+            currentFocusIndex = 0;
+            renderGrid();
+            updateStats();
+            clearMeaning();
+        }
+
+        // Keyboard
+        document.addEventListener('keydown', (e) => {
+            if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+            const key = e.key.toLowerCase();
+            if (key === 'y') updateWordStatus('known');
+            else if (key === 'n') updateWordStatus('unknown');
+            else if (key === ' ') { e.preventDefault(); toggleMeaning(); }
+            else if (['arrowdown', 'arrowright'].includes(key)) { e.preventDefault(); moveFocus(1); }
+            else if (['arrowup', 'arrowleft'].includes(key)) { e.preventDefault(); moveFocus(-1); }
+        });
+
+        function moveFocus(direction) {
+            if (words.length === 0) return;
+            let newIndex = currentFocusIndex + direction;
+            if (newIndex < 0) newIndex = 0;
+            if (newIndex >= words.length) newIndex = words.length - 1;
+            currentFocusIndex = newIndex;
+            const boxes = document.querySelectorAll('.word-box');
+            boxes.forEach(b => b.classList.remove('active-focus'));
+            if (boxes[currentFocusIndex]) {
+                boxes[currentFocusIndex].classList.add('active-focus');
+                boxes[currentFocusIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
